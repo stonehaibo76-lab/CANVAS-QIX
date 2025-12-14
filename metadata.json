@@ -1,0 +1,5 @@
+{
+  "name": "Area Capture (Qix Clone)",
+  "description": "A classic arcade-style game where you draw lines to capture territory and reveal a hidden background image while avoiding the bouncing boss.",
+  "requestFramePermissions": []
+}
