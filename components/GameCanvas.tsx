@@ -968,41 +968,37 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
       );
   }
 
-  // Layout Revert:
-  // Using simple object-contain to ensure stability and responsiveness.
-  // Both image and canvas use the same fitting strategy to stay aligned.
+  // Layout Fix:
+  // We revert to a simple absolute filling layout.
+  // The Parent container (in App.tsx) controls the 4:3 Aspect Ratio.
+  // Crucial: The image uses object-fill. This forces the image to stretch to match the canvas's 4:3 grid.
+  // This solves the issue where mask and image were misaligned due to object-contain scaling differences.
   return (
-    <div 
-        className="relative w-full h-full bg-black shadow-2xl overflow-hidden" 
-    >
-      <div 
-        className="absolute inset-0 z-0 flex items-center justify-center bg-gray-900 overflow-hidden"
-      >
+    <div className="relative w-full h-full bg-gray-900 overflow-hidden select-none">
         {backgroundImg ? (
            <img 
                 src={backgroundImg} 
                 alt="bg" 
-                className="w-full h-full object-contain transition-all duration-700" 
+                className="absolute inset-0 w-full h-full object-fill transition-all duration-700" 
                 style={{ 
                     filter: gameState === 'WON' ? 'blur(0px)' : 'blur(15px)', 
                     transform: gameState === 'WON' ? 'scale(1)' : 'scale(1.1)' 
                 }} 
             />
         ) : (
-          <div className="text-gray-500 font-mono text-xs sm:text-sm p-4 text-center">
-             选择一个本地文件夹<br/>以加载图片
-          </div>
+           <div className="w-full h-full flex items-center justify-center text-gray-500 font-mono text-xs sm:text-sm p-4 text-center border border-gray-800">
+               选择一个本地文件夹<br/>以加载图片
+           </div>
         )}
-      </div>
 
-      <canvas
-        ref={canvasRef}
-        width={GAME_WIDTH}
-        height={GAME_HEIGHT}
-        className="absolute inset-0 z-10 block w-full h-full object-contain"
-      />
-      
-      {overlay}
+        <canvas
+            ref={canvasRef}
+            width={GAME_WIDTH}
+            height={GAME_HEIGHT}
+            className="absolute inset-0 w-full h-full block"
+        />
+        
+        {overlay}
     </div>
   );
 };
