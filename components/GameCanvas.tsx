@@ -13,6 +13,18 @@ import {
   playPatrollerBounce, playHunterPulse, playQixMove 
 } from '../utils/audio';
 
+// Internal Particle Interface for visual effects
+interface Particle {
+  x: number;
+  y: number;
+  dx: number;
+  dy: number;
+  life: number;
+  maxLife: number;
+  color: string;
+  size: number;
+}
+
 interface GameCanvasProps {
   gameState: GameState;
   setGameState: (state: GameState) => void;
@@ -42,6 +54,9 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
   const powerUpsRef = useRef<PowerUp[]>([]);
   const effectsRef = useRef<ActiveEffects>({ frozenUntil: 0, speedUntil: 0, shieldUntil: 0, slowUntil: 0 });
   const keysPressed = useRef<Set<string>>(new Set());
+  
+  // Visual Effects Refs
+  const particlesRef = useRef<Particle[]>([]);
   
   // New Gameplay Refs
   const timeLeftRef = useRef<number>(GAME_DURATION);
@@ -96,6 +111,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     trailRef.current = [];
     powerUpsRef.current = [];
     effectsRef.current = { frozenUntil: 0, speedUntil: 0, shieldUntil: 0, slowUntil: 0 };
+    particlesRef.current = [];
     setDrawingSound(false);
     timeLeftRef.current = GAME_DURATION;
     flashIntensityRef.current = 0;
@@ -207,8 +223,24 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     }
   };
 
+  const spawnParticles = (x: number, y: number, color: string, count: number = 5) => {
+    for(let i=0; i<count; i++) {
+        const speed = Math.random() * 2 + 0.5;
+        const angle = Math.random() * Math.PI * 2;
+        particlesRef.current.push({
+            x: x, 
+            y: y,
+            dx: Math.cos(angle) * speed,
+            dy: Math.sin(angle) * speed,
+            life: 20 + Math.random() * 15,
+            maxLife: 35,
+            color: color,
+            size: Math.random() * 3 + 1
+        });
+    }
+  };
+
   const update = () => {
-    // ... same update logic ...
     const now = Date.now();
     const dt = (now - lastTimeRef.current) / 1000;
     lastTimeRef.current = now;
@@ -217,6 +249,17 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     const grid = gridRef.current;
     const trail = trailRef.current;
     const effects = effectsRef.current;
+
+    // --- Update Particles ---
+    for (let i = particlesRef.current.length - 1; i >= 0; i--) {
+        const p = particlesRef.current[i];
+        p.x += p.dx;
+        p.y += p.dy;
+        p.life--;
+        p.dx *= 0.95; // friction
+        p.dy *= 0.95;
+        if (p.life <= 0) particlesRef.current.splice(i, 1);
+    }
 
     // --- Timer Logic ---
     if (timeLeftRef.current > 0) {
@@ -418,6 +461,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         enemy.x = nextEx;
         enemy.y = nextEy;
         if (bounced) {
+            spawnParticles(enemy.x, enemy.y, enemy.color);
             if (enemy.type === 'PATROLLER') {
                 patrollerBounceTriggered = true;
             } else if (enemy.type !== 'HUNTER') {
@@ -591,19 +635,36 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     }
     ctx.putImageData(imgData, 0, 0);
 
-    // Draw Trail
+    // Draw Trail with Glow
     const trail = trailRef.current;
     if (trail.length > 0) {
+        ctx.save();
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = TRAIL_COLOR;
         ctx.strokeStyle = TRAIL_COLOR;
         ctx.lineWidth = 2;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
         ctx.beginPath();
         ctx.moveTo(trail[0].x, trail[0].y);
         for (let i = 1; i < trail.length; i++) {
-        ctx.lineTo(trail[i].x, trail[i].y);
+            ctx.lineTo(trail[i].x, trail[i].y);
         }
         ctx.lineTo(playerRef.current.x, playerRef.current.y); 
         ctx.stroke();
+        ctx.restore();
     }
+
+    // Draw Particles
+    particlesRef.current.forEach(p => {
+        ctx.save();
+        ctx.globalAlpha = p.life / p.maxLife;
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI*2);
+        ctx.fill();
+        ctx.restore();
+    });
 
     // Draw Player
     const now = Date.now();
@@ -734,21 +795,24 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         }
 
         if (enemy.type === 'QIX') {
-            ctx.shadowBlur = 15;
+            ctx.shadowBlur = 20;
             ctx.shadowColor = baseColor;
             
-            const pulse = Math.sin(now * 0.01);
+            const pulse = Math.sin(now * 0.008) * 3;
+            
+            // Core
             ctx.fillStyle = '#fff';
             ctx.beginPath();
-            ctx.arc(0, 0, enemy.radius * 0.4 + pulse, 0, Math.PI*2);
+            ctx.arc(0, 0, enemy.radius * 0.4 + Math.abs(pulse)*0.5, 0, Math.PI*2);
             ctx.fill();
 
+            // Rotating Rings
             ctx.strokeStyle = baseColor;
             ctx.lineWidth = 2;
             for(let i=0; i<3; i++) {
                 ctx.beginPath();
                 ctx.rotate(angle * (i === 1 ? -1 : 1) + (i * Math.PI/3)); 
-                ctx.ellipse(0, 0, enemy.radius * 1.5, enemy.radius * 0.6 + pulse*2, 0, 0, Math.PI * 2);
+                ctx.ellipse(0, 0, enemy.radius * 1.5 + pulse, enemy.radius * 0.6 - pulse*0.5, 0, 0, Math.PI * 2);
                 ctx.stroke();
             }
 
@@ -904,9 +968,10 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
       );
   }
 
+  // Layout Revert:
+  // Using simple object-contain to ensure stability and responsiveness.
+  // Both image and canvas use the same fitting strategy to stay aligned.
   return (
-    // Game Wrapper is handled in App.tsx. Here we just take up 100% of space.
-    // object-contain ensures the canvas is not distorted but fits.
     <div 
         className="relative w-full h-full bg-black shadow-2xl overflow-hidden" 
     >
