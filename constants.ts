@@ -11,11 +11,12 @@ export const SAFE_COLOR = '#10b981'; // Green-500
 // Gameplay
 export const PLAYER_SPEED_BASE = 3;
 export const PLAYER_RADIUS = 4;
+export const GAME_DURATION = 60; // 60 Seconds per level
 
 // Difficulty Configs
 export const DIFFICULTY_SETTINGS = {
   EASY: {
-    label: 'Easy',
+    label: '简单',
     qixSpeed: 1.5, // Reduced from 2.0
     hunterCount: 0,
     patrollerCount: 2,
@@ -23,7 +24,7 @@ export const DIFFICULTY_SETTINGS = {
     color: 'text-green-400'
   },
   MEDIUM: {
-    label: 'Normal',
+    label: '普通',
     qixSpeed: 2.5, // Reduced from 3.5
     hunterCount: 1,
     patrollerCount: 3,
@@ -31,7 +32,7 @@ export const DIFFICULTY_SETTINGS = {
     color: 'text-yellow-400'
   },
   HARD: {
-    label: 'Hard',
+    label: '困难',
     qixSpeed: 4.0, // Reduced from 5.5
     hunterCount: 3,
     patrollerCount: 4,

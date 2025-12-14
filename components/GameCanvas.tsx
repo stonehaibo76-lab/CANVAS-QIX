@@ -2,7 +2,8 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { 
   GAME_WIDTH, GAME_HEIGHT, PLAYER_SPEED_BASE, PLAYER_RADIUS, 
   STATE_MASKED, STATE_CLEARED, STATE_TRAIL, TRAIL_COLOR, 
-  DIFFICULTY_SETTINGS, ENEMY_STYLES, POWERUP_RADIUS, POWERUP_DURATION, PLAYER_COLOR
+  DIFFICULTY_SETTINGS, ENEMY_STYLES, POWERUP_RADIUS, POWERUP_DURATION, PLAYER_COLOR,
+  GAME_DURATION
 } from '../constants';
 import { GameState, Point, Player, Enemy, Difficulty, PowerUp, ActiveEffects, PowerUpType } from '../types';
 import { getBossReachableArea, getIndex, getPointsOnLine } from '../utils/gameLogic';
@@ -18,6 +19,7 @@ interface GameCanvasProps {
   backgroundImg: string | null;
   onProgressUpdate: (percent: number) => void;
   difficulty: Difficulty;
+  onOpenGallery?: () => void;
 }
 
 const GameCanvas: React.FC<GameCanvasProps> = ({ 
@@ -25,7 +27,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
   setGameState, 
   backgroundImg,
   onProgressUpdate,
-  difficulty
+  difficulty,
+  onOpenGallery
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const reqRef = useRef<number>();
@@ -39,11 +42,40 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
   const powerUpsRef = useRef<PowerUp[]>([]);
   const effectsRef = useRef<ActiveEffects>({ frozenUntil: 0, speedUntil: 0, shieldUntil: 0, slowUntil: 0 });
   const keysPressed = useRef<Set<string>>(new Set());
+  
+  // New Gameplay Refs
+  const timeLeftRef = useRef<number>(GAME_DURATION);
+  const lastTimeRef = useRef<number>(0);
+  const flashIntensityRef = useRef<number>(0);
+
+  // Image Data Ref (For drawing sharp pixels)
+  const sourceImageDataRef = useRef<ImageData | null>(null);
 
   // Sync Ref
   useEffect(() => {
     gameStateRef.current = gameState;
   }, [gameState]);
+
+  // Load Image Data for Pixel Manipulation
+  useEffect(() => {
+    sourceImageDataRef.current = null;
+    if (backgroundImg) {
+        const img = new Image();
+        img.src = backgroundImg;
+        img.crossOrigin = "Anonymous"; // In case of external URL, though we use Blob URLs mostly
+        img.onload = () => {
+            const tmpCanvas = document.createElement('canvas');
+            tmpCanvas.width = GAME_WIDTH;
+            tmpCanvas.height = GAME_HEIGHT;
+            const ctx = tmpCanvas.getContext('2d');
+            if (ctx) {
+                // Draw image stretched to fit game dimensions
+                ctx.drawImage(img, 0, 0, GAME_WIDTH, GAME_HEIGHT);
+                sourceImageDataRef.current = ctx.getImageData(0, 0, GAME_WIDTH, GAME_HEIGHT);
+            }
+        };
+    }
+  }, [backgroundImg]);
 
   // Initialize Game
   const initGame = useCallback(() => {
@@ -65,6 +97,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     powerUpsRef.current = [];
     effectsRef.current = { frozenUntil: 0, speedUntil: 0, shieldUntil: 0, slowUntil: 0 };
     setDrawingSound(false);
+    timeLeftRef.current = GAME_DURATION;
+    flashIntensityRef.current = 0;
 
     // Spawn Enemies based on Difficulty
     const diffConfig = DIFFICULTY_SETTINGS[difficulty];
@@ -74,7 +108,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     const spawnY = GAME_HEIGHT / 2;
 
     // Qix - The Chaotic Line Entity
-    // Needs a non-zero initial angle for rendering rotation
     newEnemies.push({
       id: idCounter++,
       type: 'QIX',
@@ -96,7 +129,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
             x: spawnX + (Math.random() * 100 - 50),
             y: spawnY + (Math.random() * 100 - 50),
             dx: 0, dy: 0,
-            speed: 1.2, // Slightly faster than before but less than Qix
+            speed: 1.2, 
             radius: ENEMY_STYLES.HUNTER.radius,
             color: ENEMY_STYLES.HUNTER.color,
             angle: 0
@@ -122,6 +155,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
 
     enemiesRef.current = newEnemies;
     onProgressUpdate(0);
+    lastTimeRef.current = Date.now();
 
   }, [difficulty, onProgressUpdate]);
 
@@ -133,9 +167,9 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     } else {
         stopMusic();
         setDrawingSound(false);
-        // Specifically clear canvas when game ends (WON/LOST) to remove lingering frame
         const ctx = canvasRef.current?.getContext('2d');
         if (ctx) {
+             // If won, we clear to reveal background. If lost/menu, clear also but overlay handles UI.
              ctx.clearRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
         }
     }
@@ -174,14 +208,25 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
   };
 
   const update = () => {
+    // ... same update logic ...
     const now = Date.now();
+    const dt = (now - lastTimeRef.current) / 1000;
+    lastTimeRef.current = now;
+
     const player = playerRef.current;
     const grid = gridRef.current;
     const trail = trailRef.current;
     const effects = effectsRef.current;
 
+    // --- Timer Logic ---
+    if (timeLeftRef.current > 0) {
+        timeLeftRef.current -= dt;
+        if (timeLeftRef.current < 0) timeLeftRef.current = 0;
+    }
+
+    const isRageMode = timeLeftRef.current <= 0;
+
     // --- Power Up Spawning ---
-    // Max 3 powerups active.
     if (powerUpsRef.current.length < 3 && Math.random() < 0.005) {
         const px = Math.floor(Math.random() * (GAME_WIDTH - 40)) + 20;
         const py = Math.floor(Math.random() * (GAME_HEIGHT - 40)) + 20;
@@ -258,7 +303,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     enemiesRef.current.forEach(enemy => {
         if (isFrozen) return;
 
-        // Ambient Sound Triggers
         if (enemy.type === 'HUNTER' && Math.random() < 0.005) {
             playHunterPulse();
         }
@@ -268,8 +312,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
 
         let effectiveSpeed = enemy.speed;
         if (isSlowed) effectiveSpeed *= 0.5;
+        if (isRageMode) effectiveSpeed *= 2.0;
 
-        // Update Rotation Angles
         enemy.angle = (enemy.angle || 0) + 0.05;
 
         let nextEx = enemy.x;
@@ -277,7 +321,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         let bounced = false;
 
         if (enemy.type === 'QIX') {
-            // Chaotic movement
             if (Math.random() < 0.02) {
                  const angle = Math.random() * Math.PI * 2;
                  enemy.dx = Math.cos(angle) * enemy.speed;
@@ -289,44 +332,32 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                nextEy += (enemy.dy / currentSpeed) * effectiveSpeed;
             }
         } else if (enemy.type === 'PATROLLER') {
-            // Wave movement
             const vx = enemy.dx;
             const vy = enemy.dy;
             const mag = Math.sqrt(vx*vx + vy*vy);
-            
-            // Perpendicular vector
             const perpX = -vy / mag;
             const perpY = vx / mag;
-            
-            // Sine wave offset - Scaled by effective speed to prevent getting stuck
             const wave = Math.sin(enemy.angle! * 2) * (effectiveSpeed * 0.5); 
-            
             nextEx += vx + perpX * wave;
             nextEy += vy + perpY * wave;
 
         } else if (enemy.type === 'HUNTER') {
-            // Smooth seeking (Inertia)
             const dx = player.x - enemy.x;
             const dy = player.y - enemy.y;
             const dist = Math.sqrt(dx*dx + dy*dy);
-            
             if (dist > 1) {
                 const tx = (dx / dist) * effectiveSpeed;
                 const ty = (dy / dist) * effectiveSpeed;
-                
                 enemy.dx = enemy.dx * 0.95 + tx * 0.05;
                 enemy.dy = enemy.dy * 0.95 + ty * 0.05;
-                
                 nextEx += enemy.dx;
                 nextEy += enemy.dy;
             }
         }
 
-        // 1. Bounds Check
-        // Explicit checks to prevent "sticking" when wave forces enemy into wall
         if (nextEx <= enemy.radius) {
             nextEx = enemy.radius;
-            if (enemy.type !== 'HUNTER' && enemy.dx < 0) enemy.dx *= -1; // Only flip if moving INTO wall
+            if (enemy.type !== 'HUNTER' && enemy.dx < 0) enemy.dx *= -1;
             bounced = true;
         } else if (nextEx >= GAME_WIDTH - enemy.radius) {
             nextEx = GAME_WIDTH - enemy.radius;
@@ -344,11 +375,9 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
             bounced = true;
         }
 
-        // 2. Grid Cleared Check
         const centerX = Math.floor(nextEx);
         const centerY = Math.floor(nextEy);
         
-        // Simple 4-point collision check for grid
         const pointsToCheck = [
             {x: centerX, y: centerY},
             {x: centerX + enemy.radius, y: centerY},
@@ -362,9 +391,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
              const px = Math.floor(p.x);
              const py = Math.floor(p.y);
 
-             // IMPORTANT FIX: Ignore the pre-cleared boundary lines (indices 0 and WIDTH-1/HEIGHT-1).
-             // The Bounds Check above already handles wall collisions. 
-             // Checking grid here causes a double-bounce effect (flip -> flip back) which sticks the enemy to the wall.
              if (px <= 0 || px >= GAME_WIDTH - 1 || py <= 0 || py >= GAME_HEIGHT - 1) continue;
 
              const idx = getIndex(Math.max(0, Math.min(GAME_WIDTH-1, px)), Math.max(0, Math.min(GAME_HEIGHT-1, py)));
@@ -376,13 +402,11 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
 
         if (hitCleared) {
              if (enemy.type === 'HUNTER') {
-                 // Hunters stop at edge
                  nextEx = enemy.x;
                  nextEy = enemy.y;
                  enemy.dx *= -1;
                  enemy.dy *= -1;
              } else {
-                 // Bounce back
                  enemy.dx *= -1;
                  enemy.dy *= -1;
                  nextEx = enemy.x; 
@@ -401,7 +425,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
             }
         }
 
-        // 3. Collision with Player/Trail
         const distToPlayer = Math.hypot(player.x - enemy.x, player.y - enemy.y);
         
         if (!isShielded) {
@@ -411,7 +434,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
              }
         }
 
-        // Check Trail Collision
         const r = Math.ceil(enemy.radius);
         for(let dy = -r; dy <= r; dy+=4) {
             for(let dx = -r; dx <= r; dx+=4) {
@@ -431,6 +453,11 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
 
     if (patrollerBounceTriggered) playPatrollerBounce();
     else if (standardBounceTriggered) playBounce();
+
+    if (flashIntensityRef.current > 0) {
+        flashIntensityRef.current -= 0.05;
+        if (flashIntensityRef.current < 0) flashIntensityRef.current = 0;
+    }
   };
 
   const handleDeath = () => {
@@ -441,6 +468,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
   };
 
   const captureArea = () => {
+    // ... same capture logic ...
     const grid = gridRef.current;
     const qix = enemiesRef.current.find(e => e.type === 'QIX');
     const qx = qix ? qix.x : GAME_WIDTH/2;
@@ -462,6 +490,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
       }
     }
     
+    flashIntensityRef.current = 0.8;
     playCapture();
 
     const survivingEnemies: Enemy[] = [];
@@ -531,263 +560,282 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
 
     ctx.clearRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 
-    if (gameStateRef.current !== 'WON') {
-        const imgData = ctx.createImageData(GAME_WIDTH, GAME_HEIGHT);
-        const data = imgData.data;
-        const grid = gridRef.current;
-        const mr = 30, mg = 58, mb = 138;
+    // IF WON: DO NOT RENDER GAME ELEMENTS. Canvas stays transparent to show background.
+    if (gameStateRef.current === 'WON') {
+        return; 
+    }
 
-        for (let i = 0; i < grid.length; i++) {
-          if (grid[i] !== STATE_CLEARED) {
-            const ptr = i * 4;
+    const imgData = ctx.createImageData(GAME_WIDTH, GAME_HEIGHT);
+    const data = imgData.data;
+    const grid = gridRef.current;
+    const srcData = sourceImageDataRef.current;
+    
+    const mr = 10, mg = 15, mb = 30; // Deep dark blue for mask
+    const maskAlpha = 140; 
+
+    for (let i = 0; i < grid.length; i++) {
+        const ptr = i * 4;
+        if (grid[i] === STATE_CLEARED && srcData) {
+            // Copy Sharp Pixel
+            data[ptr] = srcData.data[ptr];
+            data[ptr+1] = srcData.data[ptr+1];
+            data[ptr+2] = srcData.data[ptr+2];
+            data[ptr+3] = 255;
+        } else {
+            // Mask Effect
             data[ptr] = mr;
-            data[ptr + 1] = mg;
-            data[ptr + 2] = mb;
-            data[ptr + 3] = 255; 
-          }
+            data[ptr+1] = mg;
+            data[ptr+2] = mb;
+            data[ptr+3] = maskAlpha; 
         }
-        ctx.putImageData(imgData, 0, 0);
+    }
+    ctx.putImageData(imgData, 0, 0);
 
-        // Draw Trail
-        const trail = trailRef.current;
-        if (trail.length > 0) {
-          ctx.strokeStyle = TRAIL_COLOR;
-          ctx.lineWidth = 2;
-          ctx.beginPath();
-          ctx.moveTo(trail[0].x, trail[0].y);
-          for (let i = 1; i < trail.length; i++) {
-            ctx.lineTo(trail[i].x, trail[i].y);
-          }
-          ctx.lineTo(playerRef.current.x, playerRef.current.y); 
-          ctx.stroke();
-        }
-
-        // Draw Player
-        const now = Date.now();
-        ctx.fillStyle = PLAYER_COLOR;
-        
-        const isSpeed = now < effectsRef.current.speedUntil;
-        const isShield = now < effectsRef.current.shieldUntil;
-
-        if (isSpeed) {
-             ctx.fillStyle = '#fde047'; 
-             ctx.shadowColor = '#fde047';
-             ctx.shadowBlur = 10;
-        }
-        
+    // Draw Trail
+    const trail = trailRef.current;
+    if (trail.length > 0) {
+        ctx.strokeStyle = TRAIL_COLOR;
+        ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.arc(playerRef.current.x, playerRef.current.y, PLAYER_RADIUS, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.shadowBlur = 0;
-
-        if (isShield) {
-            ctx.strokeStyle = '#ffffff';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.arc(playerRef.current.x, playerRef.current.y, PLAYER_RADIUS + 4, 0, Math.PI * 2);
-            ctx.stroke();
-            ctx.strokeStyle = '#60a5fa';
-            ctx.beginPath();
-            ctx.arc(playerRef.current.x, playerRef.current.y, PLAYER_RADIUS + 2, 0, Math.PI * 2);
-            ctx.stroke();
+        ctx.moveTo(trail[0].x, trail[0].y);
+        for (let i = 1; i < trail.length; i++) {
+        ctx.lineTo(trail[i].x, trail[i].y);
         }
+        ctx.lineTo(playerRef.current.x, playerRef.current.y); 
+        ctx.stroke();
+    }
 
-        // Draw PowerUps
-        powerUpsRef.current.forEach(p => {
-            let color = '#fff';
-            let r = POWERUP_RADIUS;
-            
-            ctx.shadowBlur = 8;
-            ctx.shadowColor = 'white';
+    // Draw Player
+    const now = Date.now();
+    ctx.fillStyle = PLAYER_COLOR;
+    
+    const isSpeed = now < effectsRef.current.speedUntil;
+    const isShield = now < effectsRef.current.shieldUntil;
 
-            switch(p.type) {
-                case 'FREEZE': 
-                    color = '#22d3ee'; // Cyan
-                    ctx.strokeStyle = color;
-                    ctx.lineWidth = 2;
-                    ctx.beginPath();
-                    // Snowflake shape (3 lines intersecting)
-                    for(let i=0; i<3; i++) {
-                        const angle = (Math.PI / 3) * i;
-                        ctx.moveTo(p.x + Math.cos(angle) * -r, p.y + Math.sin(angle) * -r);
-                        ctx.lineTo(p.x + Math.cos(angle) * r, p.y + Math.sin(angle) * r);
-                    }
-                    ctx.stroke();
-                    // Small circle in center
-                    ctx.beginPath();
-                    ctx.arc(p.x, p.y, r*0.2, 0, Math.PI*2);
-                    ctx.fillStyle = 'white';
-                    ctx.fill();
-                    break;
+    if (isSpeed) {
+            ctx.fillStyle = '#fde047'; 
+            ctx.shadowColor = '#fde047';
+            ctx.shadowBlur = 10;
+    }
+    
+    ctx.beginPath();
+    ctx.arc(playerRef.current.x, playerRef.current.y, PLAYER_RADIUS, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
 
-                case 'SPEED': 
-                    color = '#facc15'; // Yellow
-                    ctx.fillStyle = color;
-                    ctx.beginPath();
-                    // Lightning bolt
-                    ctx.moveTo(p.x + r*0.2, p.y - r); // Top rightish
-                    ctx.lineTo(p.x - r*0.5, p.y + r*0.1); // Middle left
-                    ctx.lineTo(p.x + r*0.1, p.y + r*0.1); // Middle center
-                    ctx.lineTo(p.x - r*0.2, p.y + r); // Bottom leftish
-                    ctx.lineTo(p.x + r*0.5, p.y - r*0.1); // Middle right
-                    ctx.lineTo(p.x - r*0.1, p.y - r*0.1); // Middle center
-                    ctx.closePath();
-                    ctx.fill();
-                    break;
+    if (isShield) {
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(playerRef.current.x, playerRef.current.y, PLAYER_RADIUS + 4, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.strokeStyle = '#60a5fa';
+        ctx.beginPath();
+        ctx.arc(playerRef.current.x, playerRef.current.y, PLAYER_RADIUS + 2, 0, Math.PI * 2);
+        ctx.stroke();
+    }
 
-                case 'SHIELD': 
-                    color = '#e2e8f0'; // Silver
-                    ctx.fillStyle = '#3b82f6';
-                    ctx.strokeStyle = color;
-                    ctx.lineWidth = 2;
-                    ctx.beginPath();
-                    // Shield shape
-                    ctx.moveTo(p.x - r*0.8, p.y - r*0.8);
-                    ctx.lineTo(p.x + r*0.8, p.y - r*0.8);
-                    ctx.bezierCurveTo(p.x + r*0.8, p.y, p.x + r*0.5, p.y + r, p.x, p.y + r);
-                    ctx.bezierCurveTo(p.x - r*0.5, p.y + r, p.x - r*0.8, p.y, p.x - r*0.8, p.y - r*0.8);
-                    ctx.closePath();
-                    ctx.stroke();
-                    // Cross inside
-                    ctx.beginPath();
-                    ctx.moveTo(p.x, p.y - r*0.5); ctx.lineTo(p.x, p.y + r*0.3);
-                    ctx.moveTo(p.x - r*0.4, p.y - r*0.1); ctx.lineTo(p.x + r*0.4, p.y - r*0.1);
-                    ctx.stroke();
-                    break;
+    // Draw PowerUps
+    powerUpsRef.current.forEach(p => {
+        let color = '#fff';
+        let r = POWERUP_RADIUS;
+        
+        ctx.shadowBlur = 8;
+        ctx.shadowColor = 'white';
 
-                case 'SLOW': 
-                    color = '#a3e635'; // Lime
-                    ctx.fillStyle = color;
-                    ctx.beginPath();
-                    // Hourglass / Time
-                    ctx.moveTo(p.x - r*0.7, p.y - r*0.8);
-                    ctx.lineTo(p.x + r*0.7, p.y - r*0.8);
-                    ctx.lineTo(p.x, p.y);
-                    ctx.lineTo(p.x + r*0.7, p.y + r*0.8);
-                    ctx.lineTo(p.x - r*0.7, p.y + r*0.8);
-                    ctx.lineTo(p.x, p.y);
-                    ctx.closePath();
-                    ctx.fill();
-                    break;
-            }
-            
-            ctx.shadowBlur = 0;
-        });
-
-        // Draw Enemies
-        const isFrozen = now < effectsRef.current.frozenUntil;
-        enemiesRef.current.forEach(enemy => {
-            const angle = enemy.angle || 0;
-            
-            if (isFrozen) {
-                // Frozen state - just gray circle
-                ctx.fillStyle = '#94a3b8';
-                ctx.beginPath();
-                ctx.arc(enemy.x, enemy.y, enemy.radius, 0, Math.PI * 2);
-                ctx.fill();
-                return;
-            }
-
-            ctx.save();
-            ctx.translate(enemy.x, enemy.y);
-            
-            if (enemy.type === 'QIX') {
-                // Atomic / Electric Entity
-                ctx.shadowBlur = 15;
-                ctx.shadowColor = enemy.color;
-                
-                // Pulsing core
-                const pulse = Math.sin(now * 0.01);
-                ctx.fillStyle = '#fff';
-                ctx.beginPath();
-                ctx.arc(0, 0, enemy.radius * 0.4 + pulse, 0, Math.PI*2);
-                ctx.fill();
-
-                // Rotating orbits
-                ctx.strokeStyle = enemy.color;
+        switch(p.type) {
+            case 'FREEZE': 
+                color = '#22d3ee'; // Cyan
+                ctx.strokeStyle = color;
                 ctx.lineWidth = 2;
-                for(let i=0; i<3; i++) {
-                    ctx.beginPath();
-                    ctx.rotate(angle * (i === 1 ? -1 : 1) + (i * Math.PI/3)); 
-                    ctx.ellipse(0, 0, enemy.radius * 1.5, enemy.radius * 0.6 + pulse*2, 0, 0, Math.PI * 2);
-                    ctx.stroke();
-                }
-
-            } else if (enemy.type === 'HUNTER') {
-                 // Seeker Drone (Directional)
-                 // Rotate to face movement
-                 const moveAngle = Math.atan2(enemy.dy, enemy.dx);
-                 ctx.rotate(moveAngle); 
-                 
-                 ctx.shadowBlur = 10;
-                 ctx.shadowColor = enemy.color;
-
-                 // Main Body (Arrow shape)
-                 ctx.fillStyle = enemy.color;
-                 ctx.beginPath();
-                 ctx.moveTo(enemy.radius * 1.5, 0); // Nose
-                 ctx.lineTo(-enemy.radius, enemy.radius); // Left Wing
-                 ctx.lineTo(-enemy.radius * 0.5, 0); // Indent
-                 ctx.lineTo(-enemy.radius, -enemy.radius); // Right Wing
-                 ctx.closePath();
-                 ctx.fill();
-
-                 // Glowing Eye
-                 ctx.fillStyle = '#fff';
-                 ctx.beginPath();
-                 ctx.arc(enemy.radius * 0.5, 0, enemy.radius * 0.3, 0, Math.PI*2);
-                 ctx.fill();
-            
-            } else if (enemy.type === 'PATROLLER') {
-                // Spiked Mine / Buzzsaw
-                ctx.rotate(angle * 4); // Fast spin
-
-                ctx.shadowBlur = 8;
-                ctx.shadowColor = enemy.color;
-                
-                ctx.fillStyle = enemy.color;
                 ctx.beginPath();
-                const spikes = 6;
-                const outer = enemy.radius * 1.4;
-                const inner = enemy.radius * 0.6;
-                
-                for(let i=0; i < spikes * 2; i++) {
-                     const a = (i / (spikes * 2)) * Math.PI * 2;
-                     const r = (i % 2 === 0) ? outer : inner;
-                     ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+                for(let i=0; i<3; i++) {
+                    const angle = (Math.PI / 3) * i;
+                    ctx.moveTo(p.x + Math.cos(angle) * -r, p.y + Math.sin(angle) * -r);
+                    ctx.lineTo(p.x + Math.cos(angle) * r, p.y + Math.sin(angle) * r);
                 }
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, r*0.2, 0, Math.PI*2);
+                ctx.fillStyle = 'white';
+                ctx.fill();
+                break;
+            case 'SPEED': 
+                color = '#facc15'; // Yellow
+                ctx.fillStyle = color;
+                ctx.beginPath();
+                ctx.moveTo(p.x + r*0.2, p.y - r); 
+                ctx.lineTo(p.x - r*0.5, p.y + r*0.1); 
+                ctx.lineTo(p.x + r*0.1, p.y + r*0.1); 
+                ctx.lineTo(p.x - r*0.2, p.y + r); 
+                ctx.lineTo(p.x + r*0.5, p.y - r*0.1); 
+                ctx.lineTo(p.x - r*0.1, p.y - r*0.1); 
                 ctx.closePath();
                 ctx.fill();
-                
-                // Flashing center
-                const flash = Math.floor(now / 200) % 2 === 0;
-                ctx.fillStyle = flash ? '#fff' : '#000';
+                break;
+            case 'SHIELD': 
+                color = '#e2e8f0'; // Silver
+                ctx.fillStyle = '#3b82f6';
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 2;
                 ctx.beginPath();
-                ctx.arc(0, 0, inner * 0.6, 0, Math.PI*2);
+                ctx.moveTo(p.x - r*0.8, p.y - r*0.8);
+                ctx.lineTo(p.x + r*0.8, p.y - r*0.8);
+                ctx.bezierCurveTo(p.x + r*0.8, p.y, p.x + r*0.5, p.y + r, p.x, p.y + r);
+                ctx.bezierCurveTo(p.x - r*0.5, p.y + r, p.x - r*0.8, p.y, p.x - r*0.8, p.y - r*0.8);
+                ctx.closePath();
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(p.x, p.y - r*0.5); ctx.lineTo(p.x, p.y + r*0.3);
+                ctx.moveTo(p.x - r*0.4, p.y - r*0.1); ctx.lineTo(p.x + r*0.4, p.y - r*0.1);
+                ctx.stroke();
+                break;
+            case 'SLOW': 
+                color = '#a3e635'; // Lime
+                ctx.fillStyle = color;
+                ctx.beginPath();
+                ctx.moveTo(p.x - r*0.7, p.y - r*0.8);
+                ctx.lineTo(p.x + r*0.7, p.y - r*0.8);
+                ctx.lineTo(p.x, p.y);
+                ctx.lineTo(p.x + r*0.7, p.y + r*0.8);
+                ctx.lineTo(p.x - r*0.7, p.y + r*0.8);
+                ctx.lineTo(p.x, p.y);
+                ctx.closePath();
                 ctx.fill();
+                break;
+        }
+        
+        ctx.shadowBlur = 0;
+    });
+
+    // Draw Enemies
+    const isFrozen = now < effectsRef.current.frozenUntil;
+    const isRage = timeLeftRef.current <= 0;
+
+    enemiesRef.current.forEach(enemy => {
+        const angle = enemy.angle || 0;
+        const rageColor = '#ef4444'; // Red
+        const baseColor = isRage ? rageColor : enemy.color;
+        
+        if (isFrozen) {
+            ctx.fillStyle = '#94a3b8';
+            ctx.beginPath();
+            ctx.arc(enemy.x, enemy.y, enemy.radius, 0, Math.PI * 2);
+            ctx.fill();
+            return;
+        }
+
+        ctx.save();
+        ctx.translate(enemy.x, enemy.y);
+        
+        // Jiggle effect for Rage
+        if (isRage) {
+            ctx.translate(Math.random()*2 - 1, Math.random()*2 - 1);
+        }
+
+        if (enemy.type === 'QIX') {
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = baseColor;
+            
+            const pulse = Math.sin(now * 0.01);
+            ctx.fillStyle = '#fff';
+            ctx.beginPath();
+            ctx.arc(0, 0, enemy.radius * 0.4 + pulse, 0, Math.PI*2);
+            ctx.fill();
+
+            ctx.strokeStyle = baseColor;
+            ctx.lineWidth = 2;
+            for(let i=0; i<3; i++) {
+                ctx.beginPath();
+                ctx.rotate(angle * (i === 1 ? -1 : 1) + (i * Math.PI/3)); 
+                ctx.ellipse(0, 0, enemy.radius * 1.5, enemy.radius * 0.6 + pulse*2, 0, 0, Math.PI * 2);
+                ctx.stroke();
             }
 
-            ctx.restore();
-        });
+        } else if (enemy.type === 'HUNTER') {
+                const moveAngle = Math.atan2(enemy.dy, enemy.dx);
+                ctx.rotate(moveAngle); 
+                
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = baseColor;
 
-        // HUD Effects Text
-        const activeList = [];
-        if (isSpeed) activeList.push({ text: 'SPEED UP', color: '#fde047' });
-        if (isShield) activeList.push({ text: 'SHIELD', color: '#ffffff' });
-        if (isFrozen) activeList.push({ text: 'FROZEN', color: '#22d3ee' });
-        if (now < effectsRef.current.slowUntil) activeList.push({ text: 'SLOWED', color: '#a3e635' });
+                ctx.fillStyle = baseColor;
+                ctx.beginPath();
+                ctx.moveTo(enemy.radius * 1.5, 0); 
+                ctx.lineTo(-enemy.radius, enemy.radius); 
+                ctx.lineTo(-enemy.radius * 0.5, 0); 
+                ctx.lineTo(-enemy.radius, -enemy.radius); 
+                ctx.closePath();
+                ctx.fill();
 
-        if (activeList.length > 0) {
-            ctx.font = 'bold 16px sans-serif';
-            ctx.textAlign = 'right';
-            let yOff = 24;
+                ctx.fillStyle = '#fff';
+                ctx.beginPath();
+                ctx.arc(enemy.radius * 0.5, 0, enemy.radius * 0.3, 0, Math.PI*2);
+                ctx.fill();
+        
+        } else if (enemy.type === 'PATROLLER') {
+            ctx.rotate(angle * 4); 
+
+            ctx.shadowBlur = 8;
+            ctx.shadowColor = baseColor;
             
-            activeList.forEach(effect => {
-                 ctx.fillStyle = effect.color;
-                 ctx.fillText(effect.text, GAME_WIDTH - 10, yOff);
-                 yOff += 20;
-            });
+            ctx.fillStyle = baseColor;
+            ctx.beginPath();
+            const spikes = 6;
+            const outer = enemy.radius * 1.4;
+            const inner = enemy.radius * 0.6;
+            
+            for(let i=0; i < spikes * 2; i++) {
+                    const a = (i / (spikes * 2)) * Math.PI * 2;
+                    const r = (i % 2 === 0) ? outer : inner;
+                    ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+            }
+            ctx.closePath();
+            ctx.fill();
+            
+            const flash = Math.floor(now / 200) % 2 === 0;
+            ctx.fillStyle = flash ? '#fff' : '#000';
+            ctx.beginPath();
+            ctx.arc(0, 0, inner * 0.6, 0, Math.PI*2);
+            ctx.fill();
         }
+
+        ctx.restore();
+    });
+
+    // HUD Effects Text
+    const activeList = [];
+    if (isSpeed) activeList.push({ text: '加速中', color: '#fde047' });
+    if (isShield) activeList.push({ text: '护盾开启', color: '#ffffff' });
+    if (isFrozen) activeList.push({ text: '全屏冻结', color: '#22d3ee' });
+    if (now < effectsRef.current.slowUntil) activeList.push({ text: '敌人减速', color: '#a3e635' });
+    if (isRage) activeList.push({ text: '暴走模式!', color: '#ef4444' });
+
+    if (activeList.length > 0) {
+        ctx.font = 'bold 16px sans-serif';
+        ctx.textAlign = 'right';
+        let yOff = 24;
+        activeList.forEach(effect => {
+                ctx.fillStyle = effect.color;
+                ctx.fillText(effect.text, GAME_WIDTH - 10, yOff);
+                yOff += 20;
+        });
+    }
+
+    // Draw Timer
+    const timeDisplay = Math.ceil(timeLeftRef.current);
+    ctx.font = 'bold 24px monospace';
+    ctx.fillStyle = timeDisplay < 10 ? '#ef4444' : '#fff';
+    ctx.textAlign = 'center';
+    ctx.shadowBlur = 4;
+    ctx.shadowColor = 'black';
+    ctx.fillText(timeDisplay.toString(), GAME_WIDTH / 2, 30);
+    ctx.shadowBlur = 0;
+
+    // Draw Capture Flash
+    if (flashIntensityRef.current > 0) {
+        ctx.fillStyle = `rgba(255, 255, 255, ${flashIntensityRef.current})`;
+        ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
     }
   };
 
@@ -797,8 +845,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
 
   if (gameState === 'MENU') {
       overlay = (
-          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/70 backdrop-blur-sm">
-            <h1 className="text-4xl font-bold text-white mb-4 animate-pulse">PRESS START</h1>
+          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/70 backdrop-blur-sm p-4 text-center">
+            <h1 className="text-3xl sm:text-4xl font-bold text-white mb-4 animate-pulse">点击开始</h1>
             <button 
                 onClick={() => {
                 initAudio();
@@ -806,17 +854,17 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                 }}
                 className="px-6 py-2 text-white font-bold rounded shadow-lg transition bg-indigo-600 hover:bg-indigo-500"
             >
-                START GAME
+                开始游戏
             </button>
             <div className="mt-4 text-sm text-gray-400">
-                Difficulty: <span className={diffConfig.color}>{diffConfig.label}</span>
+                难度: <span className={diffConfig.color}>{diffConfig.label}</span>
             </div>
           </div>
       );
   } else if (gameState === 'LOST') {
       overlay = (
-        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/70 backdrop-blur-sm">
-             <h1 className="text-4xl font-bold text-red-500 mb-4">GAME OVER</h1>
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/70 backdrop-blur-sm p-4 text-center">
+             <h1 className="text-3xl sm:text-4xl font-bold text-red-500 mb-4">游戏结束</h1>
              <button 
                 onClick={() => {
                 initAudio();
@@ -824,40 +872,60 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                 }}
                 className="px-6 py-2 text-white font-bold rounded shadow-lg transition bg-red-600 hover:bg-red-500"
             >
-                TRY AGAIN
+                再试一次
             </button>
         </div>
       );
   } else if (gameState === 'WON') {
       overlay = (
         <div className="absolute inset-0 z-20 flex flex-col items-center justify-end pb-10 pointer-events-none">
-             <div className="bg-black/60 backdrop-blur-md p-6 rounded-xl border border-white/20 flex flex-col items-center pointer-events-auto">
-                <h1 className="text-4xl font-bold text-green-400 mb-2 drop-shadow-[0_0_10px_rgba(74,222,128,0.8)]">YOU WIN!</h1>
-                <p className="text-white mb-4 text-sm opacity-90">Image Unlocked</p>
-                <button 
-                    onClick={() => {
-                    initAudio();
-                    setGameState('PLAYING');
-                    }}
-                    className="px-6 py-2 text-white font-bold rounded shadow-lg transition bg-indigo-600 hover:bg-indigo-500"
-                >
-                    NEXT IMAGE
-                </button>
+             <div className="bg-black/60 backdrop-blur-md p-6 rounded-xl border border-white/20 flex flex-col items-center pointer-events-auto shadow-2xl mx-4">
+                <h1 className="text-3xl sm:text-4xl font-bold text-green-400 mb-2 drop-shadow-[0_0_10px_rgba(74,222,128,0.8)]">胜利!</h1>
+                <p className="text-white mb-4 text-sm opacity-90">图片已解锁</p>
+                <div className="flex gap-4">
+                    <button 
+                        onClick={() => {
+                        initAudio();
+                        setGameState('PLAYING');
+                        }}
+                        className="px-4 py-2 sm:px-6 text-white font-bold rounded shadow-lg transition bg-indigo-600 hover:bg-indigo-500 text-sm sm:text-base"
+                    >
+                        下一关
+                    </button>
+                    <button 
+                        onClick={onOpenGallery}
+                        className="px-4 py-2 sm:px-6 text-white font-bold rounded shadow-lg transition bg-pink-600 hover:bg-pink-500 text-sm sm:text-base"
+                    >
+                        查看画廊
+                    </button>
+                </div>
              </div>
         </div>
       );
   }
 
   return (
-    <div className="relative border-4 border-gray-700 shadow-2xl bg-black" style={{ width: GAME_WIDTH, height: GAME_HEIGHT }}>
+    // Game Wrapper is handled in App.tsx. Here we just take up 100% of space.
+    // object-contain ensures the canvas is not distorted but fits.
+    <div 
+        className="relative w-full h-full bg-black shadow-2xl overflow-hidden" 
+    >
       <div 
-        className="absolute inset-0 z-0 flex items-center justify-center bg-gray-800 overflow-hidden"
+        className="absolute inset-0 z-0 flex items-center justify-center bg-gray-900 overflow-hidden"
       >
         {backgroundImg ? (
-           <img src={backgroundImg} alt="bg" className="w-full h-full object-cover" />
+           <img 
+                src={backgroundImg} 
+                alt="bg" 
+                className="w-full h-full object-contain transition-all duration-700" 
+                style={{ 
+                    filter: gameState === 'WON' ? 'blur(0px)' : 'blur(15px)', 
+                    transform: gameState === 'WON' ? 'scale(1)' : 'scale(1.1)' 
+                }} 
+            />
         ) : (
-          <div className="text-gray-500 font-mono text-sm p-4 text-center">
-            Select a folder to load random images.<br/>
+          <div className="text-gray-500 font-mono text-xs sm:text-sm p-4 text-center">
+             选择一个本地文件夹<br/>以加载图片
           </div>
         )}
       </div>
@@ -866,7 +934,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         ref={canvasRef}
         width={GAME_WIDTH}
         height={GAME_HEIGHT}
-        className="absolute inset-0 z-10 block"
+        className="absolute inset-0 z-10 block w-full h-full object-contain"
       />
       
       {overlay}
