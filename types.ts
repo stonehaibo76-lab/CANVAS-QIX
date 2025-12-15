@@ -1,4 +1,5 @@
 
+
 export type GameState = 'MENU' | 'PLAYING' | 'WON' | 'LOST';
 
 export type Difficulty = 'EASY' | 'MEDIUM' | 'HARD' | 'CUSTOM';
@@ -55,7 +56,7 @@ export interface Enemy {
   stunnedUntil?: number;
 }
 
-export type PowerUpType = 'FREEZE' | 'SPEED' | 'SHIELD' | 'SLOW' | 'RAPID_FIRE' | 'SHOTGUN';
+export type PowerUpType = 'FREEZE' | 'SPEED' | 'SHIELD' | 'SLOW' | 'RAPID_FIRE' | 'SHOTGUN' | 'LIFE';
 export type DebuffType = 'CONFUSION' | 'DARKNESS' | 'ENEMY_RAGE' | 'ENEMY_CLONE';
 
 export interface PowerUp {

@@ -28,6 +28,7 @@ export const DIFFICULTY_SETTINGS = {
     hunterCount: 0,
     patrollerCount: 2,
     winPercent: 0.60,
+    initialLives: 3,
     color: 'text-green-400'
   },
   MEDIUM: {
@@ -36,6 +37,7 @@ export const DIFFICULTY_SETTINGS = {
     hunterCount: 1,
     patrollerCount: 3,
     winPercent: 0.75,
+    initialLives: 2,
     color: 'text-yellow-400'
   },
   HARD: {
@@ -44,6 +46,7 @@ export const DIFFICULTY_SETTINGS = {
     hunterCount: 3,
     patrollerCount: 4,
     winPercent: 0.85,
+    initialLives: 1,
     color: 'text-red-500'
   }
 };

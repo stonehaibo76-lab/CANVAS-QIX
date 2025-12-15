@@ -59,7 +59,8 @@ const App: React.FC = () => {
       setGameConfig(prev => ({ ...prev, [key]: value }));
   };
 
-  const toggleFullscreen = () => {
+  const toggleFullscreen = (e: React.MouseEvent<HTMLButtonElement>) => {
+      e.currentTarget.blur(); // Remove focus so spacebar doesn't trigger this again
       if (!document.fullscreenElement && gameContainerRef.current) {
           gameContainerRef.current.requestFullscreen().catch(err => {
               console.error(`Error attempting to enable fullscreen: ${err.message}`);
@@ -95,7 +96,8 @@ const App: React.FC = () => {
       setGameState(newState);
   };
 
-  const handleRestart = () => {
+  const handleRestart = (e: React.MouseEvent<HTMLButtonElement>) => {
+      e.currentTarget.blur();
       setGameState('MENU');
       setProgress(0);
       setScore(0);
@@ -197,6 +199,16 @@ const App: React.FC = () => {
                     <div className="mb-2">
                         <p className="font-bold text-gray-300 mb-3 text-sm">强力道具</p>
                          <div className="space-y-3">
+                            {/* Heart */}
+                             <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 flex items-center justify-center bg-gray-700 rounded-lg">
+                                    <span className="text-red-500 font-bold text-xl">❤</span>
+                                </div>
+                                <div>
+                                    <span className="text-red-400 font-bold text-xs block">红心 (Life)</span>
+                                    <span className="text-[10px] text-gray-500">增加生命，抵挡一次死亡</span>
+                                </div>
+                            </div>
                             {/* Shotgun */}
                             <div className="flex items-center gap-3">
                                 <div className="w-8 h-8 flex items-center justify-center bg-gray-700 rounded-lg">

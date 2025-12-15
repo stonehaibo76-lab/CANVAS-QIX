@@ -64,7 +64,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
   
   // State Refs
   const gridRef = useRef<Uint8Array>(new Uint8Array(GAME_WIDTH * GAME_HEIGHT));
-  const playerRef = useRef<Player>({ x: 0, y: 0, isDrawing: false, lastDir: {x:0, y:-1} });
+  const playerRef = useRef<Player>({ x: 0, y: 0, isDrawing: false, lastDir: {x:0, y:-1}, lives: 1, invulnerableUntil: 0 });
   const enemiesRef = useRef<Enemy[]>([]);
   const trailRef = useRef<Point[]>([]);
   const powerUpsRef = useRef<PowerUp[]>([]); // Includes Debuffs
@@ -132,7 +132,16 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
       grid[getIndex(GAME_WIDTH - 1, y)] = STATE_CLEARED;
     }
 
-    playerRef.current = { x: GAME_WIDTH / 2, y: 0, isDrawing: false, lastDir: {x:0, y:-1} };
+    const initialLives = difficulty === 'CUSTOM' ? 2 : (DIFFICULTY_SETTINGS[difficulty]?.initialLives || 1);
+    
+    playerRef.current = { 
+        x: GAME_WIDTH / 2, 
+        y: 0, 
+        isDrawing: false, 
+        lastDir: {x:0, y:-1},
+        lives: initialLives,
+        invulnerableUntil: 0 
+    };
     trailRef.current = [];
     powerUpsRef.current = [];
     projectilesRef.current = [];
@@ -224,10 +233,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     } else {
         stopMusic();
         setDrawingSound(false);
-        const ctx = canvasRef.current?.getContext('2d');
-        if (ctx) {
-             ctx.clearRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
-        }
+        // Do NOT clear canvas here to preserve the last frame for "Lost" screen
     }
 
     return () => {
@@ -240,9 +246,15 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
 
   // Input Handling
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => keysPressed.current.add(e.code);
+    const handleKeyDown = (e: KeyboardEvent) => {
+        // Prevent browser scrolling and button triggering for game control keys
+        if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', ' '].includes(e.key) || e.code === 'Space') {
+            e.preventDefault();
+        }
+        keysPressed.current.add(e.code);
+    };
     const handleKeyUp = (e: KeyboardEvent) => keysPressed.current.delete(e.code);
-    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keydown', handleKeyDown, { passive: false });
     window.addEventListener('keyup', handleKeyUp);
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
@@ -289,6 +301,29 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
   };
 
   const handleDeath = () => {
+      const now = Date.now();
+      // Check for life and invulnerability
+      if (playerRef.current.lives > 1) {
+          playerRef.current.lives--;
+          playerRef.current.invulnerableUntil = now + 2000; // 2 Seconds I-Frames
+          
+          playDebuff(); // Use debuff sound as "hurt" sound
+          addFloatingText(playerRef.current.x, playerRef.current.y, "-1 ❤", '#ef4444');
+          spawnParticles(playerRef.current.x, playerRef.current.y, '#ef4444', 15);
+          
+          // Reset player to safe drawing state
+          playerRef.current.isDrawing = false;
+          trailRef.current = [];
+          
+          // Clear trail from grid for safety (in case player was mid-draw)
+          const grid = gridRef.current;
+          for(let i=0; i<grid.length; i++) {
+              if (grid[i] === STATE_TRAIL) grid[i] = STATE_MASKED;
+          }
+          
+          return;
+      }
+
       playGameOver();
       setGameState('LOST');
       spawnParticles(playerRef.current.x, playerRef.current.y, PLAYER_COLOR, 15);
@@ -408,8 +443,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                   powerUpCollected = true;
                   
                   if (p.isDebuff) {
-                      // Player successfully quarantined the trap!
-                      // Instead of punishment, we remove it safely and give a reward.
                       playPowerUp(); 
                       scoreRef.current += 500; // Reward for disarming
                       onScoreUpdate(scoreRef.current);
@@ -422,6 +455,10 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                       scoreRef.current += 1000;
                       addFloatingText(p.x, p.y, "+1000", '#3b82f6');
                       switch (p.type) {
+                          case 'LIFE':
+                              playerRef.current.lives++;
+                              addFloatingText(playerRef.current.x, playerRef.current.y - 40, "EXTRA LIFE!", '#ef4444');
+                              break;
                           case 'FREEZE':
                               effectsRef.current.frozenUntil = now + POWERUP_DURATION;
                               break;
@@ -512,8 +549,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     const isGlobalEnemyRage = now < effects.enemyRageUntil;
 
     // --- Power Up / Trap Spawning ---
-    // If we removed a trap (set count to < 5), this logic will naturally spawn a new one eventually.
-    // The cooldown is inherent in the low probability (0.008 per frame).
     if (powerUpsRef.current.length < 5 && Math.random() < 0.008) {
         const px = Math.floor(Math.random() * (GAME_WIDTH - 40)) + 20;
         const py = Math.floor(Math.random() * (GAME_HEIGHT - 40)) + 20;
@@ -530,7 +565,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                      x: px, y: py
                  });
              } else {
-                 const types: PowerUpType[] = ['FREEZE', 'SPEED', 'SHIELD', 'SLOW', 'RAPID_FIRE', 'SHOTGUN'];
+                 const types: PowerUpType[] = ['FREEZE', 'SPEED', 'SHIELD', 'SLOW', 'RAPID_FIRE', 'SHOTGUN', 'LIFE'];
                  powerUpsRef.current.push({
                      id: Math.random(),
                      type: types[Math.floor(Math.random() * types.length)],
@@ -603,9 +638,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                     playEnemyKill();
                     scoreRef.current += 500;
                     addFloatingText(enemy.x, enemy.y, "+500", '#fbbf24');
-                    // Respawn logic or just remove? Let's remove but maybe spawn new one eventually if count too low?
-                    // For now, simple removal from list to 'kill' them effectively.
-                    // Actually, let's just teleport them away to respawn to keep difficulty constant.
                     enemy.x = GAME_WIDTH/2;
                     enemy.y = GAME_HEIGHT/2;
                     enemy.stunnedUntil = now + 2000; // Respawn delay
@@ -687,6 +719,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     const isFrozen = now < effects.frozenUntil;
     const isSlowed = now < effects.slowUntil;
     const isShielded = now < effects.shieldUntil;
+    const isInvulnerable = now < player.invulnerableUntil;
 
     let standardBounceTriggered = false;
     let patrollerBounceTriggered = false;
@@ -870,7 +903,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
 
         const distToPlayer = Math.hypot(player.x - enemy.x, player.y - enemy.y);
         
-        if (!isShielded) {
+        if (!isShielded && !isInvulnerable) {
              if (player.isDrawing && distToPlayer < enemy.radius + PLAYER_RADIUS) {
                   handleDeath();
                   return;
@@ -885,8 +918,11 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                       const cy = Math.floor(enemy.y + dy);
                       if (cx >= 0 && cx < GAME_WIDTH && cy >= 0 && cy < GAME_HEIGHT) {
                           if (grid[getIndex(cx, cy)] === STATE_TRAIL) {
-                              handleDeath();
-                              return;
+                              // TRAIL HIT LOGIC
+                              if (!isShielded && !isInvulnerable) {
+                                handleDeath();
+                                return;
+                              }
                           }
                       }
                  }
@@ -1006,6 +1042,11 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     const isConfused = now < effectsRef.current.confusionUntil;
     const isRapid = now < effectsRef.current.rapidFireUntil;
     const isShotgun = now < effectsRef.current.shotgunUntil;
+    const isInvulnerable = now < playerRef.current.invulnerableUntil;
+    
+    const isFrozen = now < effectsRef.current.frozenUntil;
+    const isRage = timeLeftRef.current <= 0;
+    const isGlobalEnemyRage = now < effectsRef.current.enemyRageUntil;
 
     if (isSpeed) {
             ctx.fillStyle = '#fde047'; 
@@ -1016,10 +1057,16 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         ctx.fillStyle = '#db2777'; // Pinkish for confusion
     }
     
+    // Player Blink if Invulnerable
+    if (isInvulnerable && Math.floor(now / 100) % 2 === 0) {
+        ctx.globalAlpha = 0.5;
+    }
+
     ctx.beginPath();
     ctx.arc(playerRef.current.x, playerRef.current.y, PLAYER_RADIUS, 0, Math.PI * 2);
     ctx.fill();
     ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1.0;
 
     if (isShield) {
         ctx.strokeStyle = '#ffffff';
@@ -1160,22 +1207,38 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                 ctx.beginPath(); ctx.arc(-r*0.5, r*0.4, r*0.25, 0, Math.PI*2); ctx.fill(); // Bottom Left
                 ctx.beginPath(); ctx.arc(r*0.5, r*0.4, r*0.25, 0, Math.PI*2); ctx.fill(); // Bottom Right
             }
+            else if (p.type === 'LIFE') {
+                // Red Heart
+                ctx.fillStyle = '#ef4444'; // Red-500
+                ctx.beginPath();
+                // Draw heart shape
+                const scale = r * 0.08; 
+                ctx.save();
+                ctx.scale(scale, scale);
+                ctx.moveTo(0, 3);
+                ctx.bezierCurveTo(0, 3, -5, -5, -10, -5);
+                ctx.bezierCurveTo(-15, -5, -15, 5, -15, 5);
+                ctx.bezierCurveTo(-15, 15, 0, 25, 0, 25);
+                ctx.bezierCurveTo(0, 25, 15, 15, 15, 5);
+                ctx.bezierCurveTo(15, 5, 15, -5, 10, -5);
+                ctx.bezierCurveTo(5, -5, 0, 3, 0, 3);
+                ctx.restore();
+                ctx.fill();
+            }
         }
         ctx.restore();
     });
 
     // Draw Enemies
-    const isFrozen = now < effectsRef.current.frozenUntil;
-    const isRage = timeLeftRef.current <= 0;
-    const isGlobalEnemyRage = now < effectsRef.current.enemyRageUntil;
-
     enemiesRef.current.forEach(enemy => {
         if (enemy.stunnedUntil && now < enemy.stunnedUntil) {
-            // Stunned Visual
-            ctx.fillStyle = '#52525b'; // Gray
+            // Stunned Visual (Grey Circle)
+            ctx.fillStyle = '#52525b'; // Zinc-600
             ctx.beginPath();
             ctx.arc(enemy.x, enemy.y, enemy.radius, 0, Math.PI * 2);
             ctx.fill();
+            
+            // ZZZ text
             ctx.font = '10px sans-serif';
             ctx.fillStyle = '#fff';
             ctx.textAlign = 'center';
@@ -1193,7 +1256,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         }
         
         if (isFrozen) {
-            ctx.fillStyle = '#94a3b8';
+            ctx.fillStyle = '#94a3b8'; // Slate-400
             ctx.beginPath();
             ctx.arc(enemy.x, enemy.y, enemy.radius, 0, Math.PI * 2);
             ctx.fill();
@@ -1233,6 +1296,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
             }
 
         } else if (enemy.type === 'HUNTER') {
+                // Rotate to face direction
                 const moveAngle = Math.atan2(enemy.dy, enemy.dx);
                 ctx.rotate(moveAngle); 
                 
@@ -1319,6 +1383,19 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                 ctx.fillText(effect.text, GAME_WIDTH - 10, yOff);
                 yOff += 20;
         });
+    }
+
+    // Draw Hearts (Lives)
+    if (playerRef.current.lives > 0) {
+        ctx.save();
+        ctx.font = '24px sans-serif';
+        ctx.fillStyle = '#ef4444';
+        ctx.textAlign = 'left';
+        ctx.shadowColor = 'black';
+        ctx.shadowBlur = 4;
+        const heartsStr = "❤ ".repeat(playerRef.current.lives);
+        ctx.fillText(heartsStr, 10, 80);
+        ctx.restore();
     }
 
     // Draw Combo Indicator if active
