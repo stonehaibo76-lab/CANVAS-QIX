@@ -1,5 +1,4 @@
 
-
 export type GameState = 'MENU' | 'PLAYING' | 'WON' | 'LOST';
 
 export type Difficulty = 'EASY' | 'MEDIUM' | 'HARD' | 'CUSTOM';
@@ -10,6 +9,7 @@ export interface GameConfig {
   patrollerCount: number;
   qixSpeed: number;
   winPercent: number;
+  gameDuration: number; // Added duration config
 }
 
 export interface Point {

@@ -14,7 +14,8 @@ const App: React.FC = () => {
       hunterCount: DIFFICULTY_SETTINGS.MEDIUM.hunterCount,
       patrollerCount: DIFFICULTY_SETTINGS.MEDIUM.patrollerCount,
       qixSpeed: DIFFICULTY_SETTINGS.MEDIUM.qixSpeed,
-      winPercent: DIFFICULTY_SETTINGS.MEDIUM.winPercent
+      winPercent: DIFFICULTY_SETTINGS.MEDIUM.winPercent,
+      gameDuration: DIFFICULTY_SETTINGS.MEDIUM.gameDuration
   });
   
   // Image State
@@ -49,7 +50,8 @@ const App: React.FC = () => {
               hunterCount: settings.hunterCount,
               patrollerCount: settings.patrollerCount,
               qixSpeed: settings.qixSpeed,
-              winPercent: settings.winPercent
+              winPercent: settings.winPercent,
+              gameDuration: settings.gameDuration
           });
       }
   };

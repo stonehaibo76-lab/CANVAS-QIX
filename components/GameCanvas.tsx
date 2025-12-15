@@ -7,7 +7,7 @@ import {
   GAME_DURATION, PROJECTILE_RADIUS, PROJECTILE_SPEED, FIRE_COOLDOWN, RAPID_FIRE_COOLDOWN, PROJECTILE_COLOR, SHOTGUN_SPREAD
 } from '../constants';
 import { GameState, Point, Player, Enemy, Difficulty, PowerUp, ActiveEffects, PowerUpType, GameConfig, DebuffType, Projectile } from '../types';
-import { getBossReachableArea, getIndex, getPointsOnLine } from '../utils/gameLogic';
+import { getBossReachableArea, getIndex, getPointsOnLine, getRandomMaskedPoint } from '../utils/gameLogic';
 import { 
   initAudio, playBounce, playCapture, playGameOver, 
   setDrawingSound, startMusic, stopMusic, playPowerUp, playEnemyKill,
@@ -153,7 +153,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     floatingTextsRef.current = [];
     
     setDrawingSound(false);
-    timeLeftRef.current = GAME_DURATION;
+    // Use configured game duration
+    timeLeftRef.current = config.gameDuration || GAME_DURATION;
     flashIntensityRef.current = 0;
     
     scoreRef.current = 0;
@@ -233,7 +234,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     } else {
         stopMusic();
         setDrawingSound(false);
-        // Do NOT clear canvas here to preserve the last frame for "Lost" screen
     }
 
     return () => {
@@ -354,11 +354,12 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
           // Clone logic: Duplicate a random enemy
           const sourceEnemy = enemiesRef.current[Math.floor(Math.random() * enemiesRef.current.length)];
           if (sourceEnemy) {
+              const spawnPt = getRandomMaskedPoint(gridRef.current);
               enemiesRef.current.push({
                   ...sourceEnemy,
                   id: Math.random(),
-                  x: GAME_WIDTH / 2, // Spawn at center
-                  y: GAME_HEIGHT / 2,
+                  x: spawnPt.x,
+                  y: spawnPt.y,
                   angle: Math.random() * Math.PI * 2
               });
           }
@@ -550,29 +551,28 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
 
     // --- Power Up / Trap Spawning ---
     if (powerUpsRef.current.length < 5 && Math.random() < 0.008) {
-        const px = Math.floor(Math.random() * (GAME_WIDTH - 40)) + 20;
-        const py = Math.floor(Math.random() * (GAME_HEIGHT - 40)) + 20;
+        // Use helper to spawn only in masked areas
+        const pt = getRandomMaskedPoint(grid);
         
-        if (grid[getIndex(px, py)] === STATE_MASKED) {
-             const isDebuff = Math.random() < 0.35; // 35% chance for trap
-             if (isDebuff) {
-                 const debuffs: DebuffType[] = ['CONFUSION', 'DARKNESS', 'ENEMY_RAGE', 'ENEMY_CLONE'];
-                 powerUpsRef.current.push({
-                     id: Math.random(),
-                     type: 'SPEED', // Dummy type
-                     isDebuff: true,
-                     debuffType: debuffs[Math.floor(Math.random() * debuffs.length)],
-                     x: px, y: py
-                 });
-             } else {
-                 const types: PowerUpType[] = ['FREEZE', 'SPEED', 'SHIELD', 'SLOW', 'RAPID_FIRE', 'SHOTGUN', 'LIFE'];
-                 powerUpsRef.current.push({
-                     id: Math.random(),
-                     type: types[Math.floor(Math.random() * types.length)],
-                     isDebuff: false,
-                     x: px, y: py
-                 });
-             }
+        // Additional check: powerups don't respawn on grid state change, but initial placement matters
+        const isDebuff = Math.random() < 0.35; // 35% chance for trap
+        if (isDebuff) {
+            const debuffs: DebuffType[] = ['CONFUSION', 'DARKNESS', 'ENEMY_RAGE', 'ENEMY_CLONE'];
+            powerUpsRef.current.push({
+                id: Math.random(),
+                type: 'SPEED', // Dummy type
+                isDebuff: true,
+                debuffType: debuffs[Math.floor(Math.random() * debuffs.length)],
+                x: pt.x, y: pt.y
+            });
+        } else {
+            const types: PowerUpType[] = ['FREEZE', 'SPEED', 'SHIELD', 'SLOW', 'RAPID_FIRE', 'SHOTGUN', 'LIFE'];
+            powerUpsRef.current.push({
+                id: Math.random(),
+                type: types[Math.floor(Math.random() * types.length)],
+                isDebuff: false,
+                x: pt.x, y: pt.y
+            });
         }
     }
 
@@ -638,8 +638,11 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                     playEnemyKill();
                     scoreRef.current += 500;
                     addFloatingText(enemy.x, enemy.y, "+500", '#fbbf24');
-                    enemy.x = GAME_WIDTH/2;
-                    enemy.y = GAME_HEIGHT/2;
+                    
+                    // Respawn in valid location
+                    const respawnPt = getRandomMaskedPoint(gridRef.current);
+                    enemy.x = respawnPt.x;
+                    enemy.y = respawnPt.y;
                     enemy.stunnedUntil = now + 2000; // Respawn delay
                 }
                 break;
@@ -962,12 +965,20 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
 
     for (let i = 0; i < grid.length; i++) {
         const ptr = i * 4;
-        if (grid[i] === STATE_CLEARED && srcData) {
-            // Copy Sharp Pixel
-            data[ptr] = srcData.data[ptr];
-            data[ptr+1] = srcData.data[ptr+1];
-            data[ptr+2] = srcData.data[ptr+2];
-            data[ptr+3] = 255;
+        if (grid[i] === STATE_CLEARED) {
+            if (srcData) {
+                // Copy Sharp Pixel
+                data[ptr] = srcData.data[ptr];
+                data[ptr+1] = srcData.data[ptr+1];
+                data[ptr+2] = srcData.data[ptr+2];
+                data[ptr+3] = 255;
+            } else {
+                // No Background Image -> Transparent
+                data[ptr] = 0;
+                data[ptr+1] = 0;
+                data[ptr+2] = 0;
+                data[ptr+3] = 0;
+            }
         } else {
             // Mask Effect
             data[ptr] = mr;
@@ -1260,6 +1271,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
             ctx.beginPath();
             ctx.arc(enemy.x, enemy.y, enemy.radius, 0, Math.PI * 2);
             ctx.fill();
+            // Important: return here only skips drawing the fancy details, but draws the frozen circle first
             return;
         }
 

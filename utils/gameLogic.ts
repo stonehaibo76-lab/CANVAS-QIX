@@ -17,6 +17,47 @@ export const getIndex = (x: number, y: number): number => {
 };
 
 /**
+ * Finds a random point on the grid that is currently MASKED (active play area).
+ * Used to ensure enemies spawn/respawn in valid locations.
+ */
+export const getRandomMaskedPoint = (grid: Uint8Array, padding: number = 30): Point => {
+    // Attempt random sampling first for performance
+    for (let i = 0; i < 100; i++) {
+        const x = Math.floor(Math.random() * (GAME_WIDTH - padding * 2)) + padding;
+        const y = Math.floor(Math.random() * (GAME_HEIGHT - padding * 2)) + padding;
+        const idx = getIndex(x, y);
+        if (grid[idx] === STATE_MASKED) {
+            return { x, y };
+        }
+    }
+
+    // Fallback: Scan grid if random sampling fails (unlikely unless map is very full)
+    const candidates: number[] = [];
+    // Stride to save memory/perf, we don't need every single pixel
+    for (let i = padding * GAME_WIDTH; i < grid.length - padding * GAME_WIDTH; i += 10) {
+        if (grid[i] === STATE_MASKED) {
+             // Basic boundary check to avoid extreme edges in linear scan
+             const cx = i % GAME_WIDTH;
+             const cy = Math.floor(i / GAME_WIDTH);
+             if (cx > padding && cx < GAME_WIDTH - padding && cy > padding && cy < GAME_HEIGHT - padding) {
+                candidates.push(i);
+             }
+        }
+    }
+
+    if (candidates.length > 0) {
+        const chosenIdx = candidates[Math.floor(Math.random() * candidates.length)];
+        return {
+            x: chosenIdx % GAME_WIDTH,
+            y: Math.floor(chosenIdx / GAME_WIDTH)
+        };
+    }
+
+    // Absolute fallback (should effectively never happen unless game is won)
+    return { x: GAME_WIDTH / 2, y: GAME_HEIGHT / 2 };
+};
+
+/**
  * Flood Fill Algorithm (BFS)
  * Used to determine which part of the map the BOSSES are currently in.
  * We mark all reachable pixels from ALL bosses.

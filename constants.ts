@@ -13,7 +13,7 @@ export const PROJECTILE_COLOR = '#fcd34d'; // Amber-300
 // Gameplay
 export const PLAYER_SPEED_BASE = 3;
 export const PLAYER_RADIUS = 4;
-export const GAME_DURATION = 60; // 60 Seconds per level
+export const GAME_DURATION = 60; // Default/Fallback duration
 export const PROJECTILE_SPEED = 6;
 export const PROJECTILE_RADIUS = 3;
 export const FIRE_COOLDOWN = 400; // ms
@@ -24,29 +24,32 @@ export const SHOTGUN_SPREAD = 0.3; // Radians approx 17 degrees
 export const DIFFICULTY_SETTINGS = {
   EASY: {
     label: '简单',
-    qixSpeed: 0.75, // Reduced from 1.5
+    qixSpeed: 0.75,
     hunterCount: 0,
     patrollerCount: 2,
     winPercent: 0.60,
     initialLives: 3,
+    gameDuration: 90, // 1.5 Minutes
     color: 'text-green-400'
   },
   MEDIUM: {
     label: '普通',
-    qixSpeed: 2.5, // Reduced from 3.5
+    qixSpeed: 2.5,
     hunterCount: 1,
     patrollerCount: 3,
     winPercent: 0.75,
     initialLives: 2,
+    gameDuration: 180, // 3 Minutes
     color: 'text-yellow-400'
   },
   HARD: {
     label: '困难',
-    qixSpeed: 4.0, // Reduced from 5.5
+    qixSpeed: 4.0,
     hunterCount: 3,
     patrollerCount: 4,
     winPercent: 0.85,
     initialLives: 1,
+    gameDuration: 300, // 5 Minutes
     color: 'text-red-500'
   }
 };
