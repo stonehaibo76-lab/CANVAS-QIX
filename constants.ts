@@ -18,12 +18,13 @@ export const PROJECTILE_SPEED = 6;
 export const PROJECTILE_RADIUS = 3;
 export const FIRE_COOLDOWN = 400; // ms
 export const RAPID_FIRE_COOLDOWN = 100; // ms
+export const SHOTGUN_SPREAD = 0.3; // Radians approx 17 degrees
 
 // Difficulty Configs
 export const DIFFICULTY_SETTINGS = {
   EASY: {
     label: '简单',
-    qixSpeed: 1.5, // Reduced from 2.0
+    qixSpeed: 0.75, // Reduced from 1.5
     hunterCount: 0,
     patrollerCount: 2,
     winPercent: 0.60,

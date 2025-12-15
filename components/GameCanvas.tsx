@@ -4,7 +4,7 @@ import {
   GAME_WIDTH, GAME_HEIGHT, PLAYER_SPEED_BASE, PLAYER_RADIUS, 
   STATE_MASKED, STATE_CLEARED, STATE_TRAIL, TRAIL_COLOR, 
   DIFFICULTY_SETTINGS, ENEMY_STYLES, POWERUP_RADIUS, POWERUP_DURATION, PLAYER_COLOR,
-  GAME_DURATION, PROJECTILE_RADIUS, PROJECTILE_SPEED, FIRE_COOLDOWN, RAPID_FIRE_COOLDOWN, PROJECTILE_COLOR
+  GAME_DURATION, PROJECTILE_RADIUS, PROJECTILE_SPEED, FIRE_COOLDOWN, RAPID_FIRE_COOLDOWN, PROJECTILE_COLOR, SHOTGUN_SPREAD
 } from '../constants';
 import { GameState, Point, Player, Enemy, Difficulty, PowerUp, ActiveEffects, PowerUpType, GameConfig, DebuffType, Projectile } from '../types';
 import { getBossReachableArea, getIndex, getPointsOnLine } from '../utils/gameLogic';
@@ -71,8 +71,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
   const projectilesRef = useRef<Projectile[]>([]);
   
   const effectsRef = useRef<ActiveEffects>({ 
-      frozenUntil: 0, speedUntil: 0, shieldUntil: 0, slowUntil: 0, rapidFireUntil: 0,
-      confusionUntil: 0, darknessUntil: 0
+      frozenUntil: 0, speedUntil: 0, shieldUntil: 0, slowUntil: 0, rapidFireUntil: 0, shotgunUntil: 0,
+      confusionUntil: 0, darknessUntil: 0, enemyRageUntil: 0
   });
   const keysPressed = useRef<Set<string>>(new Set());
   
@@ -137,8 +137,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     powerUpsRef.current = [];
     projectilesRef.current = [];
     effectsRef.current = { 
-        frozenUntil: 0, speedUntil: 0, shieldUntil: 0, slowUntil: 0, rapidFireUntil: 0,
-        confusionUntil: 0, darknessUntil: 0
+        frozenUntil: 0, speedUntil: 0, shieldUntil: 0, slowUntil: 0, rapidFireUntil: 0, shotgunUntil: 0,
+        confusionUntil: 0, darknessUntil: 0, enemyRageUntil: 0
     };
     particlesRef.current = [];
     floatingTextsRef.current = [];
@@ -157,6 +157,9 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     let idCounter = 0;
     const spawnX = GAME_WIDTH / 2;
     const spawnY = GAME_HEIGHT / 2;
+    
+    // Scale minion speeds for EASY difficulty
+    const minionSpeedScale = difficulty === 'EASY' ? 0.5 : 1.0;
 
     for (let i = 0; i < config.qixCount; i++) {
         const offsetX = (Math.random() - 0.5) * 40;
@@ -184,7 +187,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
             x: spawnX + (Math.random() * 100 - 50),
             y: spawnY + (Math.random() * 100 - 50),
             dx: 0, dy: 0,
-            speed: 1.2, 
+            speed: 1.2 * minionSpeedScale, 
             radius: ENEMY_STYLES.HUNTER.radius,
             color: ENEMY_STYLES.HUNTER.color,
             angle: 0
@@ -192,7 +195,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     }
 
     for(let i=0; i<config.patrollerCount; i++) {
-        const pSpeed = 2.5; 
+        const pSpeed = 2.5 * minionSpeedScale; 
         newEnemies.push({
             id: idCounter++,
             type: 'PATROLLER',
@@ -211,7 +214,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     onProgressUpdate(0);
     lastTimeRef.current = Date.now();
 
-  }, [config, onProgressUpdate, onScoreUpdate]);
+  }, [config, onProgressUpdate, onScoreUpdate, difficulty]);
 
   useEffect(() => {
     if (gameState === 'PLAYING') {
@@ -285,6 +288,182 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     }
   };
 
+  const handleDeath = () => {
+      playGameOver();
+      setGameState('LOST');
+      spawnParticles(playerRef.current.x, playerRef.current.y, PLAYER_COLOR, 15);
+  };
+
+  // Triggered when an ENEMY touches a trap
+  const handleDebuffActivation = (debuffType: DebuffType, x: number, y: number) => {
+      const now = Date.now();
+      playDebuff();
+      // Penalty score
+      scoreRef.current = Math.max(0, scoreRef.current - 500);
+      onScoreUpdate(scoreRef.current);
+      
+      addFloatingText(x, y, "TRAP TRIGGERED!", '#ef4444');
+      spawnParticles(x, y, '#ef4444', 10);
+
+      if (debuffType === 'CONFUSION') {
+          effectsRef.current.confusionUntil = now + 4000;
+          addFloatingText(playerRef.current.x, playerRef.current.y - 30, "CONFUSION!", '#ef4444');
+      } else if (debuffType === 'DARKNESS') {
+          effectsRef.current.darknessUntil = now + 5000;
+          addFloatingText(playerRef.current.x, playerRef.current.y - 30, "DARKNESS!", '#71717a');
+      } else if (debuffType === 'ENEMY_RAGE') {
+          effectsRef.current.enemyRageUntil = now + 6000;
+          addFloatingText(playerRef.current.x, playerRef.current.y - 30, "ENEMY RAGE!", '#ef4444');
+      } else if (debuffType === 'ENEMY_CLONE') {
+          addFloatingText(playerRef.current.x, playerRef.current.y - 30, "DUPLICATION!", '#9333ea');
+          // Clone logic: Duplicate a random enemy
+          const sourceEnemy = enemiesRef.current[Math.floor(Math.random() * enemiesRef.current.length)];
+          if (sourceEnemy) {
+              enemiesRef.current.push({
+                  ...sourceEnemy,
+                  id: Math.random(),
+                  x: GAME_WIDTH / 2, // Spawn at center
+                  y: GAME_HEIGHT / 2,
+                  angle: Math.random() * Math.PI * 2
+              });
+          }
+      }
+  };
+
+  const captureArea = () => {
+      const grid = gridRef.current;
+      const enemies = enemiesRef.current;
+      
+      // 1. Identify Boss Positions
+      const bosses = enemies.filter(e => e.type === 'QIX');
+      const bossPoints = bosses.map(b => ({x: b.x, y: b.y}));
+      
+      // 2. Flood fill from Boss positions to find what stays MASKED.
+      const safeIndices = getBossReachableArea(grid, bossPoints);
+      
+      let capturedCount = 0;
+      let totalCleared = 0;
+      
+      // 3. Clear everything that is MASKED but not safe
+      for (let i = 0; i < grid.length; i++) {
+          if (grid[i] === STATE_MASKED) {
+              if (!safeIndices.has(i)) {
+                  grid[i] = STATE_CLEARED;
+                  capturedCount++;
+              }
+          } else if (grid[i] === STATE_TRAIL) {
+              // Convert trail to cleared as well
+              grid[i] = STATE_CLEARED;
+              // Treat trail as part of the fill
+          }
+          
+          if (grid[i] === STATE_CLEARED) {
+              totalCleared++;
+          }
+      }
+
+      if (capturedCount > 0) {
+          playCapture();
+          flashIntensityRef.current = 0.5;
+          
+          const combo = comboMultiplierRef.current;
+          const points = Math.floor(capturedCount / 5) * combo;
+          
+          scoreRef.current += points;
+          onScoreUpdate(scoreRef.current);
+          
+          addFloatingText(playerRef.current.x, playerRef.current.y, `+${points}`, '#10b981');
+          
+          // Increase Combo
+          comboMultiplierRef.current++;
+          comboTimerRef.current = 4.0;
+          if (combo > 1) {
+              addFloatingText(playerRef.current.x, playerRef.current.y - 25, `${combo}x COMBO`, '#f472b6');
+          }
+
+          // Kill enemies trapped in captured area
+          for (let i = enemiesRef.current.length - 1; i >= 0; i--) {
+              const enemy = enemiesRef.current[i];
+              if (enemy.type === 'QIX') continue;
+              
+              const idx = getIndex(Math.floor(enemy.x), Math.floor(enemy.y));
+              if (grid[idx] === STATE_CLEARED) {
+                  enemiesRef.current.splice(i, 1);
+                  playEnemyKill();
+                  scoreRef.current += 1000;
+                  addFloatingText(enemy.x, enemy.y, "CRUSHED!", '#ef4444');
+                  spawnParticles(enemy.x, enemy.y, enemy.color, 15);
+              }
+          }
+          
+          // Check Power Ups & Traps in captured area
+          const remainingPowerUps: PowerUp[] = [];
+          let powerUpCollected = false;
+
+          powerUpsRef.current.forEach(p => {
+              const idx = getIndex(Math.floor(p.x), Math.floor(p.y));
+              // Check if the center of the powerup is now in a cleared area
+              if (grid[idx] === STATE_CLEARED) {
+                  const now = Date.now();
+                  powerUpCollected = true;
+                  
+                  if (p.isDebuff) {
+                      // Player successfully quarantined the trap!
+                      // Instead of punishment, we remove it safely and give a reward.
+                      playPowerUp(); 
+                      scoreRef.current += 500; // Reward for disarming
+                      onScoreUpdate(scoreRef.current);
+                      
+                      addFloatingText(p.x, p.y, "DISARMED", '#10b981'); // Green "Safe"
+                      spawnParticles(p.x, p.y, '#10b981', 10);
+                  } else {
+                      // Normal Buff
+                      playPowerUp();
+                      scoreRef.current += 1000;
+                      addFloatingText(p.x, p.y, "+1000", '#3b82f6');
+                      switch (p.type) {
+                          case 'FREEZE':
+                              effectsRef.current.frozenUntil = now + POWERUP_DURATION;
+                              break;
+                          case 'SPEED':
+                              effectsRef.current.speedUntil = now + POWERUP_DURATION;
+                              break;
+                          case 'SHIELD':
+                              effectsRef.current.shieldUntil = now + POWERUP_DURATION;
+                              break;
+                          case 'SLOW':
+                              effectsRef.current.slowUntil = now + POWERUP_DURATION;
+                              addFloatingText(playerRef.current.x, playerRef.current.y - 40, "TIME SLOW", '#a3e635');
+                              break;
+                          case 'RAPID_FIRE':
+                              effectsRef.current.rapidFireUntil = now + 8000;
+                              break;
+                          case 'SHOTGUN':
+                              effectsRef.current.shotgunUntil = now + 8000;
+                              addFloatingText(playerRef.current.x, playerRef.current.y - 40, "SHOTGUN", '#d946ef');
+                              break;
+                      }
+                  }
+              } else {
+                  remainingPowerUps.push(p);
+              }
+          });
+          
+          if (powerUpCollected) {
+              powerUpsRef.current = remainingPowerUps;
+          }
+      }
+
+      // 4. Update Progress
+      const percent = totalCleared / (GAME_WIDTH * GAME_HEIGHT);
+      onProgressUpdate(percent);
+
+      if (percent >= config.winPercent) {
+          playBounce(); 
+          setGameState('WON');
+      }
+  };
+
   const update = () => {
     const now = Date.now();
     const dt = (now - lastTimeRef.current) / 1000;
@@ -330,25 +509,28 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     }
 
     const isRageMode = timeLeftRef.current <= 0;
+    const isGlobalEnemyRage = now < effects.enemyRageUntil;
 
     // --- Power Up / Trap Spawning ---
-    if (powerUpsRef.current.length < 4 && Math.random() < 0.008) {
+    // If we removed a trap (set count to < 5), this logic will naturally spawn a new one eventually.
+    // The cooldown is inherent in the low probability (0.008 per frame).
+    if (powerUpsRef.current.length < 5 && Math.random() < 0.008) {
         const px = Math.floor(Math.random() * (GAME_WIDTH - 40)) + 20;
         const py = Math.floor(Math.random() * (GAME_HEIGHT - 40)) + 20;
         
         if (grid[getIndex(px, py)] === STATE_MASKED) {
-             const isDebuff = Math.random() < 0.3; // 30% chance for trap
+             const isDebuff = Math.random() < 0.35; // 35% chance for trap
              if (isDebuff) {
-                 const debuffs: DebuffType[] = ['CONFUSION', 'DARKNESS'];
+                 const debuffs: DebuffType[] = ['CONFUSION', 'DARKNESS', 'ENEMY_RAGE', 'ENEMY_CLONE'];
                  powerUpsRef.current.push({
                      id: Math.random(),
-                     type: 'SPEED', // Dummy type, overridden by debuffType
+                     type: 'SPEED', // Dummy type
                      isDebuff: true,
                      debuffType: debuffs[Math.floor(Math.random() * debuffs.length)],
                      x: px, y: py
                  });
              } else {
-                 const types: PowerUpType[] = ['FREEZE', 'SPEED', 'SHIELD', 'SLOW', 'RAPID_FIRE'];
+                 const types: PowerUpType[] = ['FREEZE', 'SPEED', 'SHIELD', 'SLOW', 'RAPID_FIRE', 'SHOTGUN'];
                  powerUpsRef.current.push({
                      id: Math.random(),
                      type: types[Math.floor(Math.random() * types.length)],
@@ -361,16 +543,35 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
 
     // --- Projectile Logic ---
     const cooldown = now < effects.rapidFireUntil ? RAPID_FIRE_COOLDOWN : FIRE_COOLDOWN;
+    const isShotgun = now < effects.shotgunUntil;
+
     if (keysPressed.current.has('Space') && now - lastFireTimeRef.current > cooldown) {
         lastFireTimeRef.current = now;
         playShoot();
-        projectilesRef.current.push({
-            id: Math.random(),
-            x: player.x,
-            y: player.y,
-            dx: player.lastDir.x * PROJECTILE_SPEED,
-            dy: player.lastDir.y * PROJECTILE_SPEED
-        });
+        
+        const baseAngle = Math.atan2(player.lastDir.y, player.lastDir.x);
+        
+        if (isShotgun) {
+            // Spawn 3 bullets
+            [-1, 0, 1].forEach(offset => {
+                const angle = baseAngle + (offset * SHOTGUN_SPREAD);
+                projectilesRef.current.push({
+                    id: Math.random(),
+                    x: player.x,
+                    y: player.y,
+                    dx: Math.cos(angle) * PROJECTILE_SPEED,
+                    dy: Math.sin(angle) * PROJECTILE_SPEED
+                });
+            });
+        } else {
+            projectilesRef.current.push({
+                id: Math.random(),
+                x: player.x,
+                y: player.y,
+                dx: player.lastDir.x * PROJECTILE_SPEED,
+                dy: player.lastDir.y * PROJECTILE_SPEED
+            });
+        }
     }
 
     // Update Projectiles
@@ -490,6 +691,28 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     let standardBounceTriggered = false;
     let patrollerBounceTriggered = false;
 
+    // Check Enemy <-> Trap Collision (New Logic)
+    for (let i = powerUpsRef.current.length - 1; i >= 0; i--) {
+        const p = powerUpsRef.current[i];
+        if (!p.isDebuff || !p.debuffType) continue; // Only Dangerous Traps affect player when enemy touches them
+
+        let collision = false;
+        // Check collision with any enemy
+        for (const enemy of enemiesRef.current) {
+             const dist = Math.hypot(enemy.x - p.x, enemy.y - p.y);
+             // Enemy radius + Trap radius collision check
+             if (dist < enemy.radius + POWERUP_RADIUS) {
+                 collision = true;
+                 break; 
+             }
+        }
+
+        if (collision) {
+             handleDebuffActivation(p.debuffType, p.x, p.y);
+             powerUpsRef.current.splice(i, 1);
+        }
+    }
+
     enemiesRef.current.forEach(enemy => {
         if (isFrozen) return;
         if (enemy.stunnedUntil && now < enemy.stunnedUntil) return;
@@ -513,7 +736,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
 
         let effectiveSpeed = enemy.speed;
         if (isSlowed) effectiveSpeed *= 0.5;
-        if (isRageMode) effectiveSpeed *= 2.0;
+        if (isRageMode || isGlobalEnemyRage) effectiveSpeed *= 2.0;
         if (enemy.isEnraged) effectiveSpeed *= 1.8; // Qix Enrage Speed
 
         enemy.angle = (enemy.angle || 0) + 0.05;
@@ -524,13 +747,13 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
 
         if (enemy.type === 'QIX') {
             // Enraged Behavior: loosely track player
-            if (enemy.isEnraged) {
+            if (enemy.isEnraged || isGlobalEnemyRage) {
                 const dx = player.x - enemy.x;
                 const dy = player.y - enemy.y;
                 const dist = Math.hypot(dx, dy);
                 if (dist > 1) {
                     // Mix tracking with chaotic movement
-                    const trackingWeight = 0.02;
+                    const trackingWeight = 0.025;
                     enemy.dx = enemy.dx * (1-trackingWeight) + (dx/dist * enemy.speed) * trackingWeight;
                     enemy.dy = enemy.dy * (1-trackingWeight) + (dy/dist * enemy.speed) * trackingWeight;
                     // Normalize
@@ -680,158 +903,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     }
   };
 
-  const handleDeath = () => {
-      setDrawingSound(false);
-      playGameOver();
-      setGameState('LOST');
-      gameStateRef.current = 'LOST';
-  };
-
-  const captureArea = () => {
-    const grid = gridRef.current;
-    
-    // Support Multiple Bosses
-    const qixes = enemiesRef.current.filter(e => e.type === 'QIX');
-    const startPoints: Point[] = qixes.length > 0 
-        ? qixes.map(q => ({x: q.x, y: q.y}))
-        : [{x: GAME_WIDTH/2, y: GAME_HEIGHT/2}];
-
-    const bossReachable = getBossReachableArea(grid, startPoints);
-
-    let clearedCount = 0;
-    const totalPixels = GAME_WIDTH * GAME_HEIGHT;
-
-    for (let i = 0; i < totalPixels; i++) {
-      if ((grid[i] === STATE_MASKED || grid[i] === STATE_TRAIL)) {
-        if (!bossReachable.has(i)) {
-          grid[i] = STATE_CLEARED;
-        }
-      }
-      if (grid[i] === STATE_CLEARED) {
-        clearedCount++;
-      }
-    }
-    
-    // --- Scoring Logic ---
-    let newlyCleared = 0;
-    for (let i = 0; i < totalPixels; i++) {
-        const isSafe = bossReachable.has(i);
-        const oldState = grid[i];
-        if (!isSafe && (oldState === STATE_MASKED || oldState === STATE_TRAIL)) {
-             newlyCleared++;
-             grid[i] = STATE_CLEARED;
-        }
-    }
-    
-    // Update combo
-    comboMultiplierRef.current = Math.min(comboMultiplierRef.current + 1, 10);
-    comboTimerRef.current = 3.0; // Reset timer
-
-    // Calculate score
-    const baseScore = Math.floor(newlyCleared / 10);
-    const multiplier = comboMultiplierRef.current;
-    const points = baseScore * multiplier;
-    
-    scoreRef.current += points;
-    
-    if (points > 0) {
-        addFloatingText(playerRef.current.x, playerRef.current.y, `+${points}`, '#fbbf24');
-        if (multiplier > 1) {
-            setTimeout(() => {
-                addFloatingText(playerRef.current.x, playerRef.current.y - 20, `COMBO x${multiplier}!`, '#f472b6');
-            }, 200);
-        }
-    }
-
-    flashIntensityRef.current = 0.8;
-    playCapture();
-
-    // Check Enemy Kills via Area Capture
-    const survivingEnemies: Enemy[] = [];
-    let enemyKilled = false;
-    let killScore = 0;
-
-    enemiesRef.current.forEach(enemy => {
-        if (enemy.type === 'QIX') {
-            survivingEnemies.push(enemy);
-            return;
-        }
-        const eIdx = getIndex(Math.floor(enemy.x), Math.floor(enemy.y));
-        if (!bossReachable.has(eIdx)) {
-            enemyKilled = true;
-            killScore += 5000 * multiplier;
-            addFloatingText(enemy.x, enemy.y, "TRAPPED! +5000", '#ef4444');
-        } else {
-            survivingEnemies.push(enemy);
-        }
-    });
-
-    if (enemyKilled) {
-        playEnemyKill();
-        scoreRef.current += killScore;
-    }
-    enemiesRef.current = survivingEnemies;
-
-    // Power Ups & Traps
-    const remainingPowerUps: PowerUp[] = [];
-    powerUpsRef.current.forEach(p => {
-        const idx = getIndex(Math.floor(p.x), Math.floor(p.y));
-        if (grid[idx] === STATE_CLEARED) {
-            const now = Date.now();
-            
-            if (p.isDebuff) {
-                playDebuff();
-                scoreRef.current = Math.max(0, scoreRef.current - 500);
-                addFloatingText(p.x, p.y, "TRAP!", '#ef4444');
-                if (p.debuffType === 'CONFUSION') {
-                    effectsRef.current.confusionUntil = now + 4000;
-                    addFloatingText(playerRef.current.x, playerRef.current.y - 30, "CONFUSION!", '#ef4444');
-                } else if (p.debuffType === 'DARKNESS') {
-                    effectsRef.current.darknessUntil = now + 5000;
-                    addFloatingText(playerRef.current.x, playerRef.current.y - 30, "DARKNESS!", '#71717a');
-                }
-            } else {
-                playPowerUp();
-                scoreRef.current += 1000;
-                addFloatingText(p.x, p.y, "+1000", '#3b82f6');
-                switch (p.type) {
-                    case 'FREEZE':
-                        effectsRef.current.frozenUntil = now + POWERUP_DURATION;
-                        break;
-                    case 'SPEED':
-                        effectsRef.current.speedUntil = now + POWERUP_DURATION;
-                        break;
-                    case 'SHIELD':
-                        effectsRef.current.shieldUntil = now + POWERUP_DURATION;
-                        break;
-                    case 'SLOW':
-                        effectsRef.current.slowUntil = now + POWERUP_DURATION;
-                        break;
-                    case 'RAPID_FIRE':
-                        effectsRef.current.rapidFireUntil = now + 8000;
-                        break;
-                }
-            }
-        } else {
-            remainingPowerUps.push(p);
-        }
-    });
-    powerUpsRef.current = remainingPowerUps;
-
-    // Report up
-    onScoreUpdate(scoreRef.current);
-
-    const percent = clearedCount / totalPixels;
-    onProgressUpdate(percent);
-
-    if (percent >= config.winPercent) {
-      setGameState('WON');
-      gameStateRef.current = 'WON';
-      setDrawingSound(false);
-      stopMusic();
-    }
-  };
-
   const render = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -934,6 +1005,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     const isShield = now < effectsRef.current.shieldUntil;
     const isConfused = now < effectsRef.current.confusionUntil;
     const isRapid = now < effectsRef.current.rapidFireUntil;
+    const isShotgun = now < effectsRef.current.shotgunUntil;
 
     if (isSpeed) {
             ctx.fillStyle = '#fde047'; 
@@ -959,66 +1031,143 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
 
     // Draw PowerUps / Traps
     powerUpsRef.current.forEach(p => {
-        let r = POWERUP_RADIUS;
+        const r = POWERUP_RADIUS;
+        ctx.save();
+        ctx.translate(p.x, p.y);
         ctx.shadowBlur = 8;
         ctx.shadowColor = 'white';
+        ctx.lineWidth = 2;
 
         if (p.isDebuff) {
-            // Draw Trap (Red Skull-like or X)
-            ctx.fillStyle = '#ef4444'; // Red
-            ctx.shadowColor = '#ef4444';
-            ctx.beginPath();
-            ctx.moveTo(p.x - r, p.y - r);
-            ctx.lineTo(p.x + r, p.y + r);
-            ctx.moveTo(p.x + r, p.y - r);
-            ctx.lineTo(p.x - r, p.y + r);
-            ctx.strokeStyle = '#ef4444';
-            ctx.lineWidth = 3;
-            ctx.stroke();
-            return;
-        }
+            // DEBUFFS
+             if (p.debuffType === 'CONFUSION') {
+                 ctx.strokeStyle = '#db2777'; // Pink
+                 ctx.shadowColor = '#db2777';
+                 ctx.beginPath();
+                 // Question Mark
+                 ctx.fillStyle = '#db2777';
+                 ctx.font = 'bold 20px monospace';
+                 ctx.textAlign = 'center';
+                 ctx.textBaseline = 'middle';
+                 ctx.fillText('?', 0, 1);
+             } 
+             else if (p.debuffType === 'DARKNESS') {
+                 // Gray Eye with red slash
+                 ctx.fillStyle = '#71717a'; 
+                 ctx.beginPath();
+                 ctx.ellipse(0, 0, r, r*0.6, 0, 0, Math.PI*2);
+                 ctx.fill();
+                 ctx.fillStyle = '#000';
+                 ctx.beginPath();
+                 ctx.arc(0, 0, r*0.3, 0, Math.PI*2);
+                 ctx.fill();
+                 // Red Slash
+                 ctx.strokeStyle = '#ef4444';
+                 ctx.lineWidth = 2;
+                 ctx.beginPath();
+                 ctx.moveTo(-r, -r); ctx.lineTo(r, r);
+                 ctx.stroke();
+             } 
+             else if (p.debuffType === 'ENEMY_RAGE') {
+                 // Red Angry Face
+                 ctx.fillStyle = '#ef4444';
+                 ctx.beginPath();
+                 ctx.arc(0, 0, r, 0, Math.PI*2);
+                 ctx.fill();
+                 ctx.fillStyle = '#000';
+                 // Eyes
+                 ctx.beginPath();
+                 ctx.moveTo(-4, -2); ctx.lineTo(-1, 0); ctx.lineTo(-4, 2);
+                 ctx.moveTo(4, -2); ctx.lineTo(1, 0); ctx.lineTo(4, 2); 
+                 ctx.fill();
+                 // Mouth
+                 ctx.strokeStyle = '#000';
+                 ctx.beginPath();
+                 ctx.moveTo(-3, 4); ctx.quadraticCurveTo(0, 2, 3, 4);
+                 ctx.stroke();
+             }
+             else if (p.debuffType === 'ENEMY_CLONE') {
+                 // Two overlapping purple dots
+                 ctx.fillStyle = '#9333ea'; 
+                 ctx.beginPath();
+                 ctx.arc(-3, 0, r*0.6, 0, Math.PI*2);
+                 ctx.fill();
+                 ctx.beginPath();
+                 ctx.arc(3, 0, r*0.6, 0, Math.PI*2);
+                 ctx.fill();
+             }
 
-        // Normal Powerups
-        switch(p.type) {
-            case 'FREEZE': 
-                ctx.strokeStyle = '#22d3ee'; ctx.lineWidth = 2;
+        } else {
+            // BUFFS
+            if (p.type === 'FREEZE') {
+                // Cyan Snowflake
+                ctx.strokeStyle = '#22d3ee'; 
+                ctx.shadowColor = '#22d3ee';
                 ctx.beginPath();
                 for(let i=0; i<3; i++) {
-                    const angle = (Math.PI / 3) * i;
-                    ctx.moveTo(p.x + Math.cos(angle) * -r, p.y + Math.sin(angle) * -r);
-                    ctx.lineTo(p.x + Math.cos(angle) * r, p.y + Math.sin(angle) * r);
+                    ctx.save();
+                    ctx.rotate(i * Math.PI / 3);
+                    ctx.moveTo(0, -r); ctx.lineTo(0, r);
+                    ctx.restore();
                 }
                 ctx.stroke();
-                break;
-            case 'SPEED': 
-                ctx.fillStyle = '#facc15';
+            }
+            else if (p.type === 'SPEED') {
+                // Yellow Lightning
+                ctx.fillStyle = '#facc15'; 
+                ctx.shadowColor = '#facc15';
                 ctx.beginPath();
-                ctx.moveTo(p.x - r, p.y - r); ctx.lineTo(p.x + r, p.y); ctx.lineTo(p.x - r, p.y + r);
+                ctx.moveTo(2, -r); ctx.lineTo(-3, 0); ctx.lineTo(0, 0);
+                ctx.lineTo(-2, r); ctx.lineTo(3, 0); ctx.lineTo(0, 0);
                 ctx.fill();
-                break;
-            case 'SHIELD': 
-                ctx.strokeStyle = '#3b82f6'; ctx.lineWidth = 2;
-                ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI*2); ctx.stroke();
-                break;
-            case 'SLOW': 
-                ctx.fillStyle = '#a3e635';
-                ctx.fillRect(p.x - r/2, p.y - r, r, r*2);
-                break;
-            case 'RAPID_FIRE':
-                ctx.fillStyle = '#f97316'; // Orange
+            }
+            else if (p.type === 'SHIELD') {
+                // Blue Shield
+                ctx.strokeStyle = '#3b82f6';
+                ctx.fillStyle = '#1e3a8a';
                 ctx.beginPath();
-                ctx.arc(p.x - 3, p.y + 3, 3, 0, Math.PI*2);
-                ctx.arc(p.x + 3, p.y - 3, 3, 0, Math.PI*2);
-                ctx.arc(p.x + 3, p.y + 3, 3, 0, Math.PI*2);
+                ctx.moveTo(-r*0.7, -r*0.7);
+                ctx.lineTo(r*0.7, -r*0.7);
+                ctx.lineTo(r*0.7, 0);
+                ctx.quadraticCurveTo(0, r, -r*0.7, 0);
+                ctx.closePath();
                 ctx.fill();
-                break;
+                ctx.stroke();
+            }
+            else if (p.type === 'SLOW') {
+                // Lime Hourglass
+                ctx.fillStyle = '#a3e635'; 
+                ctx.beginPath();
+                ctx.moveTo(-r*0.6, -r); ctx.lineTo(r*0.6, -r);
+                ctx.lineTo(0, 0);
+                ctx.lineTo(r*0.6, r); ctx.lineTo(-r*0.6, r);
+                ctx.lineTo(0, 0);
+                ctx.fill();
+            }
+            else if (p.type === 'RAPID_FIRE') {
+                // Orange Machine Gun (3 vertical bars)
+                ctx.fillStyle = '#f97316'; 
+                const w = r * 0.25;
+                const h = r * 1.2;
+                ctx.fillRect(-r*0.6, -h/2, w, h);
+                ctx.fillRect(-w/2, -h/2, w, h);
+                ctx.fillRect(r*0.6 - w, -h/2, w, h);
+            }
+            else if (p.type === 'SHOTGUN') {
+                // Pink Triangle Dots
+                ctx.fillStyle = '#ec4899'; 
+                ctx.beginPath(); ctx.arc(0, -r*0.5, r*0.25, 0, Math.PI*2); ctx.fill(); // Top
+                ctx.beginPath(); ctx.arc(-r*0.5, r*0.4, r*0.25, 0, Math.PI*2); ctx.fill(); // Bottom Left
+                ctx.beginPath(); ctx.arc(r*0.5, r*0.4, r*0.25, 0, Math.PI*2); ctx.fill(); // Bottom Right
+            }
         }
-        ctx.shadowBlur = 0;
+        ctx.restore();
     });
 
     // Draw Enemies
     const isFrozen = now < effectsRef.current.frozenUntil;
     const isRage = timeLeftRef.current <= 0;
+    const isGlobalEnemyRage = now < effectsRef.current.enemyRageUntil;
 
     enemiesRef.current.forEach(enemy => {
         if (enemy.stunnedUntil && now < enemy.stunnedUntil) {
@@ -1037,7 +1186,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         const angle = enemy.angle || 0;
         let baseColor = enemy.color;
         
-        if (enemy.isEnraged) {
+        if (enemy.isEnraged || isGlobalEnemyRage) {
             baseColor = '#991b1b'; // Dark Red
         } else if (isRage) {
             baseColor = '#ef4444';
@@ -1055,29 +1204,31 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         ctx.translate(enemy.x, enemy.y);
         
         // Jiggle effect for Rage/Enrage
-        if (isRage || enemy.isEnraged) {
+        if (isRage || enemy.isEnraged || isGlobalEnemyRage) {
             ctx.translate(Math.random()*2 - 1, Math.random()*2 - 1);
         }
 
         if (enemy.type === 'QIX') {
-            ctx.shadowBlur = enemy.isEnraged ? 30 : 20;
+            const raging = enemy.isEnraged || isGlobalEnemyRage;
+            ctx.shadowBlur = raging ? 30 : 20;
             ctx.shadowColor = baseColor;
             
-            const pulse = Math.sin(now * 0.008 + (enemy.isEnraged ? now * 0.02 : 0)) * (enemy.isEnraged ? 5 : 3);
+            const pulse = Math.sin(now * 0.008 + (raging ? now * 0.02 : 0)) * (raging ? 5 : 3);
             
             // Core
-            ctx.fillStyle = enemy.isEnraged ? '#000' : '#fff'; // Black core when enraged
+            ctx.fillStyle = raging ? '#000' : '#fff'; // Black core when enraged
             ctx.beginPath();
             ctx.arc(0, 0, enemy.radius * 0.4 + Math.abs(pulse)*0.5, 0, Math.PI*2);
             ctx.fill();
 
-            // Rotating Rings
+            // Rotating Rings (Atom Look)
             ctx.strokeStyle = baseColor;
-            ctx.lineWidth = enemy.isEnraged ? 3 : 2;
+            ctx.lineWidth = raging ? 3 : 2;
             for(let i=0; i<3; i++) {
                 ctx.beginPath();
-                ctx.rotate(angle * (i === 1 ? -1 : 1) + (i * Math.PI/3)); 
-                ctx.ellipse(0, 0, enemy.radius * (enemy.isEnraged ? 2.0 : 1.5) + pulse, enemy.radius * 0.6 - pulse*0.5, 0, 0, Math.PI * 2);
+                ctx.rotate(Math.PI / 3); // Rotate 60 degrees each time
+                // Draw ellipse
+                ctx.ellipse(0, 0, enemy.radius * (raging ? 2.0 : 1.5) + pulse, enemy.radius * 0.6 - pulse*0.5, angle * (i % 2 === 0 ? 1 : -1), 0, Math.PI * 2);
                 ctx.stroke();
             }
 
@@ -1088,6 +1239,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                 ctx.shadowBlur = 10;
                 ctx.shadowColor = baseColor;
 
+                // Triangle / Arrow Shape
                 ctx.fillStyle = baseColor;
                 ctx.beginPath();
                 ctx.moveTo(enemy.radius * 1.5, 0); 
@@ -1097,6 +1249,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
                 ctx.closePath();
                 ctx.fill();
 
+                // Eye
                 ctx.fillStyle = '#fff';
                 ctx.beginPath();
                 ctx.arc(enemy.radius * 0.5, 0, enemy.radius * 0.3, 0, Math.PI*2);
@@ -1108,6 +1261,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
             ctx.shadowBlur = 8;
             ctx.shadowColor = baseColor;
             
+            // Spiky Shape
             ctx.fillStyle = baseColor;
             ctx.beginPath();
             const spikes = 6;
@@ -1132,27 +1286,29 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         ctx.restore();
     });
 
-    // --- Floating Texts ---
-    ctx.font = 'bold 16px monospace';
-    ctx.textAlign = 'center';
-    ctx.shadowBlur = 4;
-    ctx.shadowColor = 'black';
+    // Draw Floating Texts
     floatingTextsRef.current.forEach(ft => {
         ctx.fillStyle = ft.color;
+        ctx.strokeStyle = 'black';
+        ctx.lineWidth = 3;
+        ctx.font = 'bold 20px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.strokeText(ft.text, ft.x, ft.y);
         ctx.fillText(ft.text, ft.x, ft.y);
     });
-    ctx.shadowBlur = 0;
 
     // HUD Effects Text
     const activeList = [];
     if (isSpeed) activeList.push({ text: '加速中', color: '#fde047' });
     if (isShield) activeList.push({ text: '护盾开启', color: '#ffffff' });
     if (isFrozen) activeList.push({ text: '全屏冻结', color: '#22d3ee' });
-    if (now < effectsRef.current.slowUntil) activeList.push({ text: '敌人减速', color: '#a3e635' });
+    if (now < effectsRef.current.slowUntil) activeList.push({ text: '子弹时间', color: '#a3e635' });
     if (isRage) activeList.push({ text: '暴走模式!', color: '#ef4444' });
-    if (isRapid) activeList.push({ text: '连射模式', color: '#f97316' });
+    if (isRapid) activeList.push({ text: '机枪模式', color: '#f97316' });
+    if (isShotgun) activeList.push({ text: '散弹模式', color: '#d946ef' });
     if (isConfused) activeList.push({ text: '混乱状态!', color: '#db2777' });
     if (isDarkness) activeList.push({ text: '视野受限!', color: '#71717a' });
+    if (isGlobalEnemyRage) activeList.push({ text: '敌人狂暴!', color: '#991b1b' });
 
     if (activeList.length > 0) {
         ctx.font = 'bold 16px sans-serif';
@@ -1271,7 +1427,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
       );
   }
 
-  // Layout Note: We use a wrapper div ref (containerRef) 
   return (
     <div ref={containerRef} className="relative w-full h-full bg-gray-900 overflow-hidden select-none">
         {backgroundImg ? (

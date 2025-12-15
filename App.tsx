@@ -187,30 +187,131 @@ const App: React.FC = () => {
                     <h3 className="text-xl font-bold text-cyan-400 mb-4 border-b border-gray-600 pb-2">游戏指南</h3>
                     
                     <div className="mb-4 text-sm text-gray-400 leading-relaxed">
-                        <p className="font-bold text-gray-300 mb-1">目标</p>
-                        <p className="mb-2">使用方向键画线圈地。避开红色的 <strong>Qix</strong>。连续圈地可获得连击分数。</p>
-                        <p>达到 <span className={diffColor}>{targetPercent}%</span> 覆盖率即可过关。</p>
+                        <p className="font-bold text-gray-300 mb-1">操作与目标</p>
+                        <p className="mb-2">
+                            <strong>方向键</strong> 移动圈地。<br/>
+                            <strong>空格键</strong> 发射子弹。<br/>
+                        </p>
                     </div>
 
                     <div className="mb-2">
-                        <p className="font-bold text-gray-300 mb-3 text-sm">道具说明</p>
-                         <div className="space-y-4">
+                        <p className="font-bold text-gray-300 mb-3 text-sm">强力道具</p>
+                         <div className="space-y-3">
+                            {/* Shotgun */}
                             <div className="flex items-center gap-3">
                                 <div className="w-8 h-8 flex items-center justify-center bg-gray-700 rounded-lg">
-                                    <svg viewBox="0 0 20 20" className="w-5 h-5 text-cyan-400 stroke-current" style={{fill:'none', strokeWidth: 2}}><path d="M10 2 L17 6 L17 14 L10 18 L3 14 L3 6 Z" /><circle cx="10" cy="10" r="2" fill="currentColor" className="text-white border-none" /></svg>
+                                    <div className="flex justify-center gap-0.5 mt-1">
+                                         <div className="w-1.5 h-1.5 rounded-full bg-pink-500 translate-y-1 -translate-x-0.5"></div>
+                                         <div className="w-1.5 h-1.5 rounded-full bg-pink-500 -translate-y-1"></div>
+                                         <div className="w-1.5 h-1.5 rounded-full bg-pink-500 translate-y-1 translate-x-0.5"></div>
+                                    </div>
                                 </div>
                                 <div>
-                                    <span className="text-cyan-400 font-bold text-sm block">冻结</span>
-                                    <span className="text-xs text-gray-500">停止所有敌人</span>
+                                    <span className="text-pink-400 font-bold text-xs block">散弹枪 (Shotgun)</span>
+                                    <span className="text-[10px] text-gray-500">扇形发射3发子弹</span>
+                                </div>
+                            </div>
+                             {/* Rapid Fire */}
+                             <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 flex items-center justify-center bg-gray-700 rounded-lg">
+                                    <div className="flex gap-0.5">
+                                        <div className="w-1 h-3 rounded bg-orange-500"></div>
+                                        <div className="w-1 h-3 rounded bg-orange-500"></div>
+                                        <div className="w-1 h-3 rounded bg-orange-500"></div>
+                                    </div>
+                                </div>
+                                <div>
+                                    <span className="text-orange-400 font-bold text-xs block">机枪 (Machine Gun)</span>
+                                    <span className="text-[10px] text-gray-500">超高射速</span>
+                                </div>
+                            </div>
+                            {/* Time Slow */}
+                            <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 flex items-center justify-center bg-gray-700 rounded-lg">
+                                    <svg className="w-5 h-5 text-lime-400 fill-current" viewBox="0 0 24 24"><path d="M6 2h12v6l-4 4 4 4v6H6v-6l4-4-4-4V2z"/></svg>
+                                </div>
+                                <div>
+                                    <span className="text-green-400 font-bold text-xs block">子弹时间 (Slow)</span>
+                                    <span className="text-[10px] text-gray-500">敌人动作变慢</span>
+                                </div>
+                            </div>
+                            {/* Freeze */}
+                             <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 flex items-center justify-center bg-gray-700 rounded-lg">
+                                    <svg className="w-5 h-5 text-cyan-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2v20M2 12h20M4.93 4.93l14.14 14.14M4.93 19.07L19.07 4.93"/></svg>
+                                </div>
+                                <div>
+                                    <span className="text-cyan-400 font-bold text-xs block">冻结 (Freeze)</span>
+                                    <span className="text-[10px] text-gray-500">停止所有敌人</span>
+                                </div>
+                            </div>
+                            {/* Speed */}
+                            <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 flex items-center justify-center bg-gray-700 rounded-lg">
+                                    <svg className="w-5 h-5 text-yellow-400 fill-current" viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                                </div>
+                                <div>
+                                    <span className="text-yellow-400 font-bold text-xs block">加速 (Speed)</span>
+                                    <span className="text-[10px] text-gray-500">大幅提升移速</span>
+                                </div>
+                            </div>
+                            {/* Shield */}
+                            <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 flex items-center justify-center bg-gray-700 rounded-lg">
+                                    <svg className="w-5 h-5 text-blue-500 fill-current" viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/></svg>
+                                </div>
+                                <div>
+                                    <span className="text-blue-400 font-bold text-xs block">护盾 (Shield)</span>
+                                    <span className="text-[10px] text-gray-500">无敌一次</span>
+                                </div>
+                            </div>
+                         </div>
+                    </div>
+
+                    <div className="mb-2">
+                        <p className="font-bold text-red-400 mb-3 text-sm border-t border-gray-700 pt-2">危险陷阱</p>
+                         <div className="space-y-3">
+                            <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 flex items-center justify-center bg-gray-700 rounded-lg border border-red-900/50">
+                                    <div className="flex -space-x-1">
+                                        <div className="w-3 h-3 rounded-full bg-purple-500"></div>
+                                        <div className="w-3 h-3 rounded-full bg-purple-500"></div>
+                                    </div>
+                                </div>
+                                <div>
+                                    <span className="text-purple-400 font-bold text-xs block">分身 (Clone)</span>
+                                    <span className="text-[10px] text-gray-500">复制一个敌人</span>
                                 </div>
                             </div>
                             <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 flex items-center justify-center bg-gray-700 rounded-lg">
-                                    <svg viewBox="0 0 20 20" className="w-5 h-5 text-yellow-400 fill-current"><path d="M13 2 L6 10 L11 10 L7 18 L15 8 L10 8 Z" /></svg>
+                                <div className="w-8 h-8 flex items-center justify-center bg-gray-700 rounded-lg border border-red-900/50">
+                                     <svg className="w-6 h-6 text-red-500" viewBox="0 0 24 24">
+                                        <circle cx="12" cy="12" r="10" fill="currentColor" />
+                                        <path d="M7 9 L10 11 L7 13 Z M17 9 L14 11 L17 13 Z" fill="black" />
+                                        <path d="M9 16 Q12 13 15 16" stroke="black" strokeWidth="2" fill="none" />
+                                     </svg>
                                 </div>
                                 <div>
-                                    <span className="text-yellow-400 font-bold text-sm block">加速</span>
-                                    <span className="text-xs text-gray-500">大幅提升移速</span>
+                                    <span className="text-red-800 font-bold text-xs block">暴怒 (Rage)</span>
+                                    <span className="text-[10px] text-gray-500">所有敌人进入狂暴</span>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 flex items-center justify-center bg-gray-700 rounded-lg border border-red-900/50">
+                                     <span className="text-pink-500 font-bold text-lg">?</span>
+                                </div>
+                                <div>
+                                    <span className="text-pink-400 font-bold text-xs block">混乱 (Confusion)</span>
+                                    <span className="text-[10px] text-gray-500">方向反转</span>
+                                </div>
+                            </div>
+                             <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 flex items-center justify-center bg-gray-700 rounded-lg border border-red-900/50">
+                                     <svg className="w-5 h-5 text-gray-500 fill-current" viewBox="0 0 24 24"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/><line x1="3" y1="3" x2="21" y2="21" stroke="red" strokeWidth="2"/></svg>
+                                </div>
+                                <div>
+                                    <span className="text-gray-400 font-bold text-xs block">黑暗 (Darkness)</span>
+                                    <span className="text-[10px] text-gray-500">视野受限</span>
                                 </div>
                             </div>
                          </div>

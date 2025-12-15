@@ -55,8 +55,8 @@ export interface Enemy {
   stunnedUntil?: number;
 }
 
-export type PowerUpType = 'FREEZE' | 'SPEED' | 'SHIELD' | 'SLOW' | 'RAPID_FIRE';
-export type DebuffType = 'CONFUSION' | 'DARKNESS';
+export type PowerUpType = 'FREEZE' | 'SPEED' | 'SHIELD' | 'SLOW' | 'RAPID_FIRE' | 'SHOTGUN';
+export type DebuffType = 'CONFUSION' | 'DARKNESS' | 'ENEMY_RAGE' | 'ENEMY_CLONE';
 
 export interface PowerUp {
   id: number;
@@ -71,9 +71,12 @@ export interface ActiveEffects {
   frozenUntil: number;
   speedUntil: number;
   shieldUntil: number;
-  slowUntil: number;
-  rapidFireUntil: number;
-  // Debuffs
+  slowUntil: number; // This is "Time Slow"
+  rapidFireUntil: number; // Machine Gun
+  shotgunUntil: number; // Shotgun
+  
+  // Debuffs / Traps
   confusionUntil: number;
   darknessUntil: number;
+  enemyRageUntil: number;
 }
