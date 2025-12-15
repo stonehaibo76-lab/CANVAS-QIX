@@ -1,3 +1,4 @@
+
 // Audio Context Singleton
 let ctx: AudioContext | null = null;
 let drawingOsc: OscillatorNode | null = null;
@@ -24,6 +25,50 @@ export const initAudio = () => {
 };
 
 // --- Sound Effects ---
+
+export const playShoot = () => {
+  if (!ctx) return;
+  const t = ctx.currentTime;
+  
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  
+  // Laser pew
+  osc.type = 'square';
+  osc.frequency.setValueAtTime(800, t);
+  osc.frequency.exponentialRampToValueAtTime(100, t + 0.1);
+  
+  gain.gain.setValueAtTime(0.05, t);
+  gain.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
+  
+  osc.start(t);
+  osc.stop(t + 0.1);
+};
+
+export const playDebuff = () => {
+  if (!ctx) return;
+  const t = ctx.currentTime;
+  
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  
+  // Low dissonant tone
+  osc.type = 'sawtooth';
+  osc.frequency.setValueAtTime(150, t);
+  osc.frequency.linearRampToValueAtTime(100, t + 0.3);
+  
+  gain.gain.setValueAtTime(0.1, t);
+  gain.gain.linearRampToValueAtTime(0, t + 0.3);
+  
+  osc.start(t);
+  osc.stop(t + 0.3);
+};
 
 export const playBounce = () => {
   if (!ctx) return;

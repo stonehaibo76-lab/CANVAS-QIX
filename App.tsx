@@ -22,7 +22,10 @@ const App: React.FC = () => {
   const [currentImg, setCurrentImg] = useState<string | null>(null);
   const [unlockedImages, setUnlockedImages] = useState<Set<string>>(new Set());
   const [showGallery, setShowGallery] = useState(false);
+  
+  // Stats
   const [progress, setProgress] = useState(0);
+  const [score, setScore] = useState(0);
 
   // Fullscreen State
   const gameContainerRef = useRef<HTMLDivElement>(null);
@@ -86,6 +89,8 @@ const App: React.FC = () => {
 
       if (newState === 'PLAYING' && (gameState === 'WON' || gameState === 'MENU' || gameState === 'LOST')) {
           pickRandomImage();
+          setScore(0); // Reset score on new game
+          setProgress(0);
       }
       setGameState(newState);
   };
@@ -93,6 +98,7 @@ const App: React.FC = () => {
   const handleRestart = () => {
       setGameState('MENU');
       setProgress(0);
+      setScore(0);
   };
 
   const handleFolderUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -110,6 +116,7 @@ const App: React.FC = () => {
           setCurrentImg(urls[Math.floor(Math.random() * urls.length)]);
           setGameState('MENU');
           setProgress(0);
+          setScore(0);
           setUnlockedImages(new Set()); 
       } else {
           alert("未找到有效图片");
@@ -174,15 +181,14 @@ const App: React.FC = () => {
       
       <div className="flex flex-col xl:flex-row gap-6 w-full max-w-[1600px] items-center xl:items-start justify-center">
             
-            {/* LEFT COLUMN: Instructions (Hidden in Fullscreen) */}
+            {/* LEFT COLUMN: Instructions */}
             <div className="w-full xl:w-80 flex-shrink-0 flex flex-col gap-4 order-2 xl:order-1">
                  <div className="bg-gray-800/80 p-6 rounded-xl border border-gray-700 shadow-xl backdrop-blur-sm">
                     <h3 className="text-xl font-bold text-cyan-400 mb-4 border-b border-gray-600 pb-2">游戏指南</h3>
                     
                     <div className="mb-4 text-sm text-gray-400 leading-relaxed">
                         <p className="font-bold text-gray-300 mb-1">目标</p>
-                        <p className="mb-2">使用方向键控制光标画线，圈出区域以解锁背景图片。</p>
-                        <p className="mb-2">避开红色的 <strong>Qix</strong> 和其他敌人。移动到深色区域时会留下轨迹，轨迹未闭合前被敌人触碰即判定失败。</p>
+                        <p className="mb-2">使用方向键画线圈地。避开红色的 <strong>Qix</strong>。连续圈地可获得连击分数。</p>
                         <p>达到 <span className={diffColor}>{targetPercent}%</span> 覆盖率即可过关。</p>
                     </div>
 
@@ -207,24 +213,6 @@ const App: React.FC = () => {
                                     <span className="text-xs text-gray-500">大幅提升移速</span>
                                 </div>
                             </div>
-                            <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 flex items-center justify-center bg-gray-700 rounded-lg">
-                                    <svg viewBox="0 0 20 20" className="w-5 h-5 text-blue-500 stroke-white" style={{fill:'currentColor', strokeWidth: 1.5}}><path d="M10 2 C10 2 16 4 16 9 C16 14 10 18 10 18 C10 18 4 14 4 9 C4 4 10 2 10 2 Z" /></svg>
-                                </div>
-                                <div>
-                                    <span className="text-blue-400 font-bold text-sm block">护盾</span>
-                                    <span className="text-xs text-gray-500">免疫一次伤害</span>
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 flex items-center justify-center bg-gray-700 rounded-lg">
-                                     <svg viewBox="0 0 20 20" className="w-5 h-5 text-lime-400 fill-current"><path d="M5 2 L15 2 L10 9 L15 16 L5 16 L10 9 Z" /></svg>
-                                </div>
-                                <div>
-                                    <span className="text-lime-400 font-bold text-sm block">减速</span>
-                                    <span className="text-xs text-gray-500">敌人速度减半</span>
-                                </div>
-                            </div>
                          </div>
                     </div>
                  </div>
@@ -236,7 +224,6 @@ const App: React.FC = () => {
                     CANVAS QIX
                  </h1>
                  
-                 {/* Difficulty Selector (Only visible in MENU) */}
                 {gameState === 'MENU' && (
                     <div className="flex gap-2 flex-wrap justify-center mb-4">
                         {(['EASY', 'MEDIUM', 'HARD', 'CUSTOM'] as Difficulty[]).map((key) => {
@@ -281,13 +268,14 @@ const App: React.FC = () => {
                         )}
                     </button>
 
-                    {/* Canvas Area - Flex Grow to take available space in fullscreen */}
+                    {/* Canvas Area */}
                     <div className="relative w-full flex-grow overflow-hidden flex items-center justify-center">
                         <GameCanvas 
                             gameState={gameState} 
                             setGameState={handleSetGameState} 
                             backgroundImg={currentImg}
                             onProgressUpdate={setProgress}
+                            onScoreUpdate={setScore}
                             difficulty={difficulty}
                             config={gameConfig}
                             onOpenGallery={() => setShowGallery(true)}
@@ -296,17 +284,25 @@ const App: React.FC = () => {
                     
                     {/* Stats Bar */}
                     <div className={`w-full bg-gray-800 border-t border-gray-700 flex items-center justify-between px-4 py-2 ${isFullscreen ? 'absolute bottom-0 bg-gray-900/90 backdrop-blur-sm pb-4' : 'rounded-b-lg'}`}>
-                         <div className="flex flex-col">
-                            <span className="text-[10px] text-gray-400 uppercase tracking-widest">进度</span>
-                            <div className="flex items-baseline gap-2">
-                                <span className={`text-xl font-mono font-bold ${progress >= gameConfig.winPercent ? 'text-green-400' : 'text-white'}`}>
-                                    {formattedProgress}%
+                         <div className="flex gap-8">
+                             <div className="flex flex-col">
+                                <span className="text-[10px] text-gray-400 uppercase tracking-widest">进度</span>
+                                <div className="flex items-baseline gap-2">
+                                    <span className={`text-xl font-mono font-bold ${progress >= gameConfig.winPercent ? 'text-green-400' : 'text-white'}`}>
+                                        {formattedProgress}%
+                                    </span>
+                                    <span className="text-xs text-gray-500">/ {targetPercent}%</span>
+                                </div>
+                             </div>
+                             <div className="flex flex-col">
+                                <span className="text-[10px] text-gray-400 uppercase tracking-widest">分数</span>
+                                <span className="text-xl font-mono font-bold text-yellow-400">
+                                    {score.toLocaleString()}
                                 </span>
-                                <span className="text-xs text-gray-500">/ {targetPercent}%</span>
-                            </div>
+                             </div>
                          </div>
 
-                         <div className="flex items-center gap-4 flex-1 justify-end max-w-[50%]">
+                         <div className="flex items-center gap-4 flex-1 justify-end max-w-[40%]">
                              <div className="w-full bg-gray-700 h-2 rounded-full overflow-hidden">
                                 <div 
                                 className={`h-full transition-all duration-300 ${progress >= gameConfig.winPercent ? 'bg-green-500' : 'bg-cyan-500'}`}
@@ -326,7 +322,7 @@ const App: React.FC = () => {
                  </div>
             </div>
 
-            {/* RIGHT COLUMN: Settings & Loader */}
+            {/* RIGHT COLUMN: Settings */}
             <div className="w-full xl:w-80 flex-shrink-0 flex flex-col gap-4 order-3 xl:order-3">
                  
                  {/* Custom Config Panel */}

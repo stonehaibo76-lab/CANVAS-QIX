@@ -25,6 +25,15 @@ export interface Player {
   x: number;
   y: number;
   isDrawing: boolean;
+  lastDir: { x: number, y: number }; // For shooting direction
+}
+
+export interface Projectile {
+  id: number;
+  x: number;
+  y: number;
+  dx: number;
+  dy: number;
 }
 
 export type EnemyType = 'QIX' | 'HUNTER' | 'PATROLLER';
@@ -39,16 +48,23 @@ export interface Enemy {
   speed: number;
   radius: number;
   color: string;
-  angle?: number; // For circular/wavy movement
+  angle?: number; 
+  // Transformation Logic
+  isEnraged?: boolean;
+  enrageTimer?: number;
+  stunnedUntil?: number;
 }
 
-export type PowerUpType = 'FREEZE' | 'SPEED' | 'SHIELD' | 'SLOW';
+export type PowerUpType = 'FREEZE' | 'SPEED' | 'SHIELD' | 'SLOW' | 'RAPID_FIRE';
+export type DebuffType = 'CONFUSION' | 'DARKNESS';
 
 export interface PowerUp {
   id: number;
   type: PowerUpType;
   x: number;
   y: number;
+  isDebuff?: boolean; // If true, it is a trap (DebuffType cast as PowerUpType mostly for storage convenience or separate list)
+  debuffType?: DebuffType;
 }
 
 export interface ActiveEffects {
@@ -56,4 +72,8 @@ export interface ActiveEffects {
   speedUntil: number;
   shieldUntil: number;
   slowUntil: number;
+  rapidFireUntil: number;
+  // Debuffs
+  confusionUntil: number;
+  darknessUntil: number;
 }

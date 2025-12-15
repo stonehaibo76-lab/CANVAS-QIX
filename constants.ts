@@ -1,3 +1,4 @@
+
 // Game Dimensions
 export const GAME_WIDTH = 600;
 export const GAME_HEIGHT = 450;
@@ -7,11 +8,16 @@ export const MASK_COLOR = '#1e3a8a'; // Blue-900
 export const PLAYER_COLOR = '#06b6d4'; // Cyan-500
 export const TRAIL_COLOR = '#ffffff'; // White
 export const SAFE_COLOR = '#10b981'; // Green-500
+export const PROJECTILE_COLOR = '#fcd34d'; // Amber-300
 
 // Gameplay
 export const PLAYER_SPEED_BASE = 3;
 export const PLAYER_RADIUS = 4;
 export const GAME_DURATION = 60; // 60 Seconds per level
+export const PROJECTILE_SPEED = 6;
+export const PROJECTILE_RADIUS = 3;
+export const FIRE_COOLDOWN = 400; // ms
+export const RAPID_FIRE_COOLDOWN = 100; // ms
 
 // Difficulty Configs
 export const DIFFICULTY_SETTINGS = {
@@ -57,7 +63,7 @@ export const ENEMY_STYLES = {
   }
 };
 
-// PowerUps
+// PowerUps & Debuffs
 export const POWERUP_RADIUS = 8;
 export const POWERUP_DURATION = 5000; // Increased to 5s
 
