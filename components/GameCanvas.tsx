@@ -1,3 +1,4 @@
+
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { 
   GAME_WIDTH, GAME_HEIGHT, PLAYER_SPEED_BASE, PLAYER_RADIUS, 
@@ -5,7 +6,7 @@ import {
   DIFFICULTY_SETTINGS, ENEMY_STYLES, POWERUP_RADIUS, POWERUP_DURATION, PLAYER_COLOR,
   GAME_DURATION
 } from '../constants';
-import { GameState, Point, Player, Enemy, Difficulty, PowerUp, ActiveEffects, PowerUpType } from '../types';
+import { GameState, Point, Player, Enemy, Difficulty, PowerUp, ActiveEffects, PowerUpType, GameConfig } from '../types';
 import { getBossReachableArea, getIndex, getPointsOnLine } from '../utils/gameLogic';
 import { 
   initAudio, playBounce, playCapture, playGameOver, 
@@ -31,6 +32,7 @@ interface GameCanvasProps {
   backgroundImg: string | null;
   onProgressUpdate: (percent: number) => void;
   difficulty: Difficulty;
+  config: GameConfig; // Replaced difficulty-only reliance with full config
   onOpenGallery?: () => void;
 }
 
@@ -40,6 +42,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
   backgroundImg,
   onProgressUpdate,
   difficulty,
+  config,
   onOpenGallery
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -77,7 +80,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     if (backgroundImg) {
         const img = new Image();
         img.src = backgroundImg;
-        img.crossOrigin = "Anonymous"; // In case of external URL, though we use Blob URLs mostly
+        img.crossOrigin = "Anonymous"; 
         img.onload = () => {
             const tmpCanvas = document.createElement('canvas');
             tmpCanvas.width = GAME_WIDTH;
@@ -116,29 +119,33 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     timeLeftRef.current = GAME_DURATION;
     flashIntensityRef.current = 0;
 
-    // Spawn Enemies based on Difficulty
-    const diffConfig = DIFFICULTY_SETTINGS[difficulty];
+    // Spawn Enemies based on Custom Config
     const newEnemies: Enemy[] = [];
     let idCounter = 0;
     const spawnX = GAME_WIDTH / 2;
     const spawnY = GAME_HEIGHT / 2;
 
-    // Qix - The Chaotic Line Entity
-    newEnemies.push({
-      id: idCounter++,
-      type: 'QIX',
-      x: spawnX,
-      y: spawnY,
-      dx: (Math.random() > 0.5 ? 1 : -1) * diffConfig.qixSpeed,
-      dy: (Math.random() > 0.5 ? 1 : -1) * diffConfig.qixSpeed,
-      speed: diffConfig.qixSpeed,
-      radius: ENEMY_STYLES.QIX.radius,
-      color: ENEMY_STYLES.QIX.color,
-      angle: 0 
-    });
+    // Qix(s) - The Chaotic Line Entity
+    for (let i = 0; i < config.qixCount; i++) {
+        // Disperse multiple Qix slightly so they don't stack
+        const offsetX = (Math.random() - 0.5) * 40;
+        const offsetY = (Math.random() - 0.5) * 40;
+        newEnemies.push({
+            id: idCounter++,
+            type: 'QIX',
+            x: spawnX + offsetX,
+            y: spawnY + offsetY,
+            dx: (Math.random() > 0.5 ? 1 : -1) * config.qixSpeed,
+            dy: (Math.random() > 0.5 ? 1 : -1) * config.qixSpeed,
+            speed: config.qixSpeed,
+            radius: ENEMY_STYLES.QIX.radius,
+            color: ENEMY_STYLES.QIX.color,
+            angle: Math.random() * Math.PI * 2 
+        });
+    }
 
     // Hunters (Slow but relentless)
-    for(let i=0; i<diffConfig.hunterCount; i++) {
+    for(let i=0; i<config.hunterCount; i++) {
         newEnemies.push({
             id: idCounter++,
             type: 'HUNTER',
@@ -153,7 +160,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     }
 
     // Patrollers (Fast bouncers)
-    for(let i=0; i<diffConfig.patrollerCount; i++) {
+    for(let i=0; i<config.patrollerCount; i++) {
         const pSpeed = 2.5; 
         newEnemies.push({
             id: idCounter++,
@@ -173,7 +180,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     onProgressUpdate(0);
     lastTimeRef.current = Date.now();
 
-  }, [difficulty, onProgressUpdate]);
+  }, [config, onProgressUpdate]);
 
   useEffect(() => {
     if (gameState === 'PLAYING') {
@@ -185,7 +192,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
         setDrawingSound(false);
         const ctx = canvasRef.current?.getContext('2d');
         if (ctx) {
-             // If won, we clear to reveal background. If lost/menu, clear also but overlay handles UI.
              ctx.clearRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
         }
     }
@@ -512,13 +518,15 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
   };
 
   const captureArea = () => {
-    // ... same capture logic ...
     const grid = gridRef.current;
-    const qix = enemiesRef.current.find(e => e.type === 'QIX');
-    const qx = qix ? qix.x : GAME_WIDTH/2;
-    const qy = qix ? qix.y : GAME_HEIGHT/2;
+    
+    // Support Multiple Bosses
+    const qixes = enemiesRef.current.filter(e => e.type === 'QIX');
+    const startPoints: Point[] = qixes.length > 0 
+        ? qixes.map(q => ({x: q.x, y: q.y}))
+        : [{x: GAME_WIDTH/2, y: GAME_HEIGHT/2}];
 
-    const bossReachable = getBossReachableArea(grid, qx, qy);
+    const bossReachable = getBossReachableArea(grid, startPoints);
 
     let clearedCount = 0;
     const totalPixels = GAME_WIDTH * GAME_HEIGHT;
@@ -584,11 +592,11 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     });
     powerUpsRef.current = remainingPowerUps;
 
-    const diffConfig = DIFFICULTY_SETTINGS[difficulty];
+    // Use passed config for win percent
     const percent = clearedCount / totalPixels;
     onProgressUpdate(percent);
 
-    if (percent >= diffConfig.winPercent) {
+    if (percent >= config.winPercent) {
       setGameState('WON');
       gameStateRef.current = 'WON';
       setDrawingSound(false);
@@ -903,7 +911,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({
     }
   };
 
-  const diffConfig = DIFFICULTY_SETTINGS[difficulty];
+  const diffConfig = difficulty === 'CUSTOM' ? { label: '自定义', color: 'text-purple-400' } : DIFFICULTY_SETTINGS[difficulty];
 
   let overlay = null;
 

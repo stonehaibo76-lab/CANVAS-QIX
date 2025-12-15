@@ -1,11 +1,21 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import GameCanvas from './components/GameCanvas';
-import { GameState, Difficulty } from './types';
+import { GameState, Difficulty, GameConfig } from './types';
 import { DIFFICULTY_SETTINGS } from './constants';
 
 const App: React.FC = () => {
   const [gameState, setGameState] = useState<GameState>('MENU');
   const [difficulty, setDifficulty] = useState<Difficulty>('MEDIUM');
+  
+  // Game Config State (initialized with Medium)
+  const [gameConfig, setGameConfig] = useState<GameConfig>({
+      qixCount: 1,
+      hunterCount: DIFFICULTY_SETTINGS.MEDIUM.hunterCount,
+      patrollerCount: DIFFICULTY_SETTINGS.MEDIUM.patrollerCount,
+      qixSpeed: DIFFICULTY_SETTINGS.MEDIUM.qixSpeed,
+      winPercent: DIFFICULTY_SETTINGS.MEDIUM.winPercent
+  });
   
   // Image State
   const [imageUrls, setImageUrls] = useState<string[]>([]);
@@ -25,6 +35,26 @@ const App: React.FC = () => {
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
   }, []);
+
+  // Update Config when preset changes
+  const handleDifficultyChange = (diff: Difficulty) => {
+      setDifficulty(diff);
+      if (diff !== 'CUSTOM') {
+          const settings = DIFFICULTY_SETTINGS[diff];
+          setGameConfig({
+              qixCount: 1,
+              hunterCount: settings.hunterCount,
+              patrollerCount: settings.patrollerCount,
+              qixSpeed: settings.qixSpeed,
+              winPercent: settings.winPercent
+          });
+      }
+  };
+
+  const handleCustomConfigChange = (key: keyof GameConfig, value: number) => {
+      setDifficulty('CUSTOM');
+      setGameConfig(prev => ({ ...prev, [key]: value }));
+  };
 
   const toggleFullscreen = () => {
       if (!document.fullscreenElement && gameContainerRef.current) {
@@ -87,8 +117,8 @@ const App: React.FC = () => {
     }
   };
 
-  const diffConfig = DIFFICULTY_SETTINGS[difficulty];
-  const targetPercent = (diffConfig.winPercent * 100).toFixed(0);
+  const diffColor = difficulty === 'CUSTOM' ? 'text-purple-400' : DIFFICULTY_SETTINGS[difficulty]?.color;
+  const targetPercent = (gameConfig.winPercent * 100).toFixed(0);
   const formattedProgress = (progress * 100).toFixed(1);
 
   if (showGallery) {
@@ -153,7 +183,7 @@ const App: React.FC = () => {
                         <p className="font-bold text-gray-300 mb-1">目标</p>
                         <p className="mb-2">使用方向键控制光标画线，圈出区域以解锁背景图片。</p>
                         <p className="mb-2">避开红色的 <strong>Qix</strong> 和其他敌人。移动到深色区域时会留下轨迹，轨迹未闭合前被敌人触碰即判定失败。</p>
-                        <p>达到 <span className={diffConfig.color}>{targetPercent}%</span> 覆盖率即可过关。</p>
+                        <p>达到 <span className={diffColor}>{targetPercent}%</span> 覆盖率即可过关。</p>
                     </div>
 
                     <div className="mb-2">
@@ -209,13 +239,13 @@ const App: React.FC = () => {
                  {/* Difficulty Selector (Only visible in MENU) */}
                 {gameState === 'MENU' && (
                     <div className="flex gap-2 flex-wrap justify-center mb-4">
-                        {(Object.keys(DIFFICULTY_SETTINGS) as Difficulty[]).map((key) => {
-                            const conf = DIFFICULTY_SETTINGS[key];
+                        {(['EASY', 'MEDIUM', 'HARD', 'CUSTOM'] as Difficulty[]).map((key) => {
+                            const conf = key === 'CUSTOM' ? { label: '自定义', color: 'text-purple-400' } : DIFFICULTY_SETTINGS[key];
                             const isActive = difficulty === key;
                             return (
                                 <button
                                     key={key}
-                                    onClick={() => setDifficulty(key)}
+                                    onClick={() => handleDifficultyChange(key)}
                                     className={`px-4 py-1 rounded-full border text-sm font-bold transition-all ${
                                         isActive 
                                         ? `${conf.color} border-current bg-gray-800 shadow-[0_0_10px_currentColor]` 
@@ -259,6 +289,7 @@ const App: React.FC = () => {
                             backgroundImg={currentImg}
                             onProgressUpdate={setProgress}
                             difficulty={difficulty}
+                            config={gameConfig}
                             onOpenGallery={() => setShowGallery(true)}
                         />
                     </div>
@@ -268,7 +299,7 @@ const App: React.FC = () => {
                          <div className="flex flex-col">
                             <span className="text-[10px] text-gray-400 uppercase tracking-widest">进度</span>
                             <div className="flex items-baseline gap-2">
-                                <span className={`text-xl font-mono font-bold ${progress >= diffConfig.winPercent ? 'text-green-400' : 'text-white'}`}>
+                                <span className={`text-xl font-mono font-bold ${progress >= gameConfig.winPercent ? 'text-green-400' : 'text-white'}`}>
                                     {formattedProgress}%
                                 </span>
                                 <span className="text-xs text-gray-500">/ {targetPercent}%</span>
@@ -278,7 +309,7 @@ const App: React.FC = () => {
                          <div className="flex items-center gap-4 flex-1 justify-end max-w-[50%]">
                              <div className="w-full bg-gray-700 h-2 rounded-full overflow-hidden">
                                 <div 
-                                className={`h-full transition-all duration-300 ${progress >= diffConfig.winPercent ? 'bg-green-500' : 'bg-cyan-500'}`}
+                                className={`h-full transition-all duration-300 ${progress >= gameConfig.winPercent ? 'bg-green-500' : 'bg-cyan-500'}`}
                                 style={{ width: `${Math.min(100, progress * 100)}%` }}
                                 ></div>
                             </div>
@@ -295,8 +326,72 @@ const App: React.FC = () => {
                  </div>
             </div>
 
-            {/* RIGHT COLUMN: Loader & Settings */}
+            {/* RIGHT COLUMN: Settings & Loader */}
             <div className="w-full xl:w-80 flex-shrink-0 flex flex-col gap-4 order-3 xl:order-3">
+                 
+                 {/* Custom Config Panel */}
+                 <div className="bg-gray-800/80 p-6 rounded-xl border border-gray-700 shadow-xl backdrop-blur-sm">
+                    <h3 className="text-xl font-bold text-purple-400 mb-4 border-b border-gray-600 pb-2 flex justify-between items-center">
+                        <span>游戏设置</span>
+                        {difficulty === 'CUSTOM' && <span className="text-xs bg-purple-900 text-purple-200 px-2 py-0.5 rounded">自定义</span>}
+                    </h3>
+                    
+                    <div className="space-y-4">
+                        <div>
+                            <div className="flex justify-between text-xs text-gray-400 mb-1">
+                                <span>Boss (Qix) 数量</span>
+                                <span className="text-purple-300">{gameConfig.qixCount}</span>
+                            </div>
+                            <input 
+                                type="range" min="1" max="4" step="1"
+                                value={gameConfig.qixCount}
+                                onChange={(e) => handleCustomConfigChange('qixCount', parseInt(e.target.value))}
+                                className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                            />
+                        </div>
+
+                        <div>
+                            <div className="flex justify-between text-xs text-gray-400 mb-1">
+                                <span>Hunter (追踪者)</span>
+                                <span className="text-purple-300">{gameConfig.hunterCount}</span>
+                            </div>
+                            <input 
+                                type="range" min="0" max="6" step="1"
+                                value={gameConfig.hunterCount}
+                                onChange={(e) => handleCustomConfigChange('hunterCount', parseInt(e.target.value))}
+                                className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                            />
+                        </div>
+
+                        <div>
+                            <div className="flex justify-between text-xs text-gray-400 mb-1">
+                                <span>Patroller (巡逻者)</span>
+                                <span className="text-purple-300">{gameConfig.patrollerCount}</span>
+                            </div>
+                            <input 
+                                type="range" min="0" max="10" step="1"
+                                value={gameConfig.patrollerCount}
+                                onChange={(e) => handleCustomConfigChange('patrollerCount', parseInt(e.target.value))}
+                                className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                            />
+                        </div>
+
+                        <div>
+                            <div className="flex justify-between text-xs text-gray-400 mb-1">
+                                <span>Boss 速度</span>
+                                <span className="text-purple-300">{gameConfig.qixSpeed.toFixed(1)}</span>
+                            </div>
+                            <input 
+                                type="range" min="1.0" max="8.0" step="0.5"
+                                value={gameConfig.qixSpeed}
+                                onChange={(e) => handleCustomConfigChange('qixSpeed', parseFloat(e.target.value))}
+                                className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                            />
+                        </div>
+                    </div>
+                 </div>
+
+                 {/* Resource Loader */}
                  <div className="bg-gray-800/80 p-6 rounded-xl border border-gray-700 shadow-xl backdrop-blur-sm">
                     <h3 className="text-xl font-bold text-pink-500 mb-4 border-b border-gray-600 pb-2">资源加载</h3>
                     

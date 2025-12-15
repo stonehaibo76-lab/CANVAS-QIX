@@ -1,3 +1,4 @@
+
 import { GAME_WIDTH, GAME_HEIGHT, STATE_MASKED, STATE_CLEARED, STATE_TRAIL } from '../constants';
 import { Point } from '../types';
 
@@ -17,26 +18,27 @@ export const getIndex = (x: number, y: number): number => {
 
 /**
  * Flood Fill Algorithm (BFS)
- * Used to determine which part of the map the BOSS is currently in.
- * We mark all reachable pixels from the boss.
+ * Used to determine which part of the map the BOSSES are currently in.
+ * We mark all reachable pixels from ALL bosses.
  * 
- * Returns a Set of indices that are "safe" (kept masked) because the boss is there.
+ * Returns a Set of indices that are "safe" (kept masked) because a boss is there.
  */
 export const getBossReachableArea = (
   grid: Uint8Array,
-  startX: number,
-  startY: number
+  startPoints: Point[]
 ): Set<number> => {
   const visited = new Set<number>();
   const queue: number[] = [];
   
-  const startIndex = getIndex(Math.floor(startX), Math.floor(startY));
-  
-  // If boss is somehow in a wall or cleared area, just return empty (shouldn't happen ideally)
-  if (grid[startIndex] === STATE_CLEARED) return visited;
-
-  queue.push(startIndex);
-  visited.add(startIndex);
+  // Initialize queue with all boss positions
+  for (const p of startPoints) {
+      const idx = getIndex(Math.floor(p.x), Math.floor(p.y));
+      // Only add valid start points that are currently masked
+      if (grid[idx] === STATE_MASKED && !visited.has(idx)) {
+          queue.push(idx);
+          visited.add(idx);
+      }
+  }
 
   // Directions: Up, Down, Left, Right
   const offsets = [-GAME_WIDTH, GAME_WIDTH, -1, 1];

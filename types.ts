@@ -1,6 +1,15 @@
+
 export type GameState = 'MENU' | 'PLAYING' | 'WON' | 'LOST';
 
-export type Difficulty = 'EASY' | 'MEDIUM' | 'HARD';
+export type Difficulty = 'EASY' | 'MEDIUM' | 'HARD' | 'CUSTOM';
+
+export interface GameConfig {
+  qixCount: number;
+  hunterCount: number;
+  patrollerCount: number;
+  qixSpeed: number;
+  winPercent: number;
+}
 
 export interface Point {
   x: number;
